@@ -97,7 +97,10 @@ class FlowController(RealFlowController):
         """Set the maximum ramp rate."""
         self.max_ramp = max_ramp
 
-    async def get_maxramp(self) -> float:
+    async def get_maxramp(self) -> dict[str, float]:
         """Get the maximum ramp rate."""
-        return self.max_ramp
+        return {
+            'max_ramp': self.max_ramp,
+            'units': 'SLPM/s',
+        }
     

@@ -626,7 +626,7 @@ class FlowController(FlowMeter):
         if not line or self.unit not in line:
             raise OSError("Could not set max ramp.")
 
-    async def get_maxramp(self) -> float:
+    async def get_maxramp(self) -> dict[str, float]:
         """Get the maximum ramp rate (firmware 10v05).
 
         Returns:
@@ -640,4 +640,7 @@ class FlowController(FlowMeter):
         print(values)
         if len(values) != 5:
             raise OSError("Could not read max ramp.")
-        return float(values[1])
+        return {
+            'max_ramp': float(values[1]),
+            'units': values[4],
+        }

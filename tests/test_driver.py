@@ -82,7 +82,8 @@ async def test_maxramp():
     """Confirm that setting/getting the maximum ramp rate works."""
     async with FlowController(ADDRESS) as device:
         max_ramp = round(uniform(0.01, 0.1), 2)
-        await device.set_maxramp(max_ramp, 3)
+        await device.set_maxramp(max_ramp, 4)
         result = await device.get_maxramp()
-        assert max_ramp == result
+        assert max_ramp == result['max_ramp']
+        assert 'SLPM/s' == result['units']
 
