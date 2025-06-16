@@ -76,3 +76,13 @@ async def test_ramp_config(config):
         await device.set_ramp_config(config)
         result = await device.get_ramp_config()
         assert config == result
+
+
+async def test_maxramp():
+    """Confirm that setting/getting the maximum ramp rate works."""
+    async with FlowController(ADDRESS) as device:
+        max_ramp = round(uniform(0.01, 0.1), 2)
+        await device.set_maxramp(max_ramp, 3)
+        result = await device.get_maxramp()
+        assert max_ramp == result
+

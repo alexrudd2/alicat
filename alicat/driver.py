@@ -608,3 +608,35 @@ class FlowController(FlowMeter):
             'zero': values[2] == '1',
             'power': values[3] == '1',
         }
+
+    async def set_maxramp(self, max_ramp: float, unit_time: int) -> None:
+        """Set the maximum ramp rate (firmware 10v05).
+
+        Args:
+            max_ramp: The maximum ramp rate
+            unit_time: The units of the ramp rate
+                - 3: millisecond
+                - 4: second
+                - 5: minute
+                - 6: hour
+                - 7: day
+        """
+        command = f"{self.unit}SR {max_ramp:.2f} {unit_time}"
+        line = await self._write_and_read(command)
+        if not line or self.unit not in line:
+            raise OSError("Could not set max ramp.")
+
+    async def get_maxramp(self) -> float:
+        """Get the maximum ramp rate (firmware 10v05).
+
+        Returns:
+            max_ramp: The maximum ramp rate
+        """
+        command = f"{self.unit}SR"
+        line = await self._write_and_read(command)
+        if not line or self.unit not in line:
+            raise OSError("Could not read max ramp.")
+        values = line.split(' ')
+        if len(values) != 2:
+            raise OSError("Could not read max ramp.")
+        return float(values[1])

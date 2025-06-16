@@ -42,6 +42,7 @@ class FlowController(RealFlowController):
         self.keys = ['pressure', 'temperature', 'volumetric_flow', 'mass_flow',
                      'setpoint', 'gas']
         self.firmware = '6v21.0-R22 Nov 30 2016,16:04:20'
+        self.max_ramp = 0.0
 
     async def get(self) -> dict[str, str | float]:
         """Return the full state."""
@@ -91,3 +92,12 @@ class FlowController(RealFlowController):
     async def set_ramp_config(self, config: dict[str, bool]) -> None:
         """Set ramp config."""
         self.ramp_config = config
+
+    async def set_maxramp(self, max_ramp: float, unit_time: int) -> None:
+        """Set the maximum ramp rate."""
+        self.max_ramp = max_ramp
+
+    async def get_maxramp(self) -> float:
+        """Get the maximum ramp rate."""
+        return self.max_ramp
+    
