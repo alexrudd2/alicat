@@ -637,7 +637,6 @@ class FlowController(FlowMeter):
         if not line or self.unit not in line:
             raise OSError("Could not read max ramp.")
         values = line.split(' ')
-        print(values)
         if len(values) != 5:
             raise OSError("Could not read max ramp.")
         return {
