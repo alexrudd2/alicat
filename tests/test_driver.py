@@ -85,5 +85,5 @@ async def test_maxramp():
         await device.set_maxramp(max_ramp, 4)
         result = await device.get_maxramp()
         assert max_ramp == result['max_ramp']
-        assert 'SLPM/s' == result['units']
+        assert result['units'] == 'SLPM/s'
 
