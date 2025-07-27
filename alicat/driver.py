@@ -7,7 +7,7 @@ Copyright (C) 2023 NuMat Technologies
 from __future__ import annotations
 
 import asyncio
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from .util import Client, SerialClient, TcpClient, _is_float
 
@@ -29,6 +29,13 @@ class FlowMeter:
                              'C2H4', 'i-C2H10', 'Kr', 'Xe', 'SF6', 'C-25', 'C-10',
                              'C-8', 'C-2', 'C-75', 'A-75', 'A-25', 'A1025', 'Star29',
                              'P-5']
+    max_ramp_time_units: ClassVar[dict[str, int]] = {
+        'ms': 3,
+        's': 4,
+        'm': 5,
+        'h': 6,
+        'd': 7
+    }
 
     def __init__(self, address: str = '/dev/ttyUSB0', unit: str = 'A', **kwargs: Any) -> None:
         """Connect this driver with the appropriate USB / serial port.
@@ -609,25 +616,26 @@ class FlowController(FlowMeter):
             'power': values[3] == '1',
         }
 
-    async def set_maxramp(self, max_ramp: float, unit_time: int) -> None:
-        """Set the maximum ramp rate (firmware 10v05).
+    async def set_maxramp(self, max_ramp: float,
+                          unit_time: Literal['ms' | 's' | 'm' | 'h' | 'd']) -> None:
+        """Set the maximum ramp rate (firmware 7v11).
 
         Args:
             max_ramp: The maximum ramp rate
             unit_time: The units of the ramp rate
-                - 3: millisecond
-                - 4: second
-                - 5: minute
-                - 6: hour
-                - 7: day
+                - 3: (m)illisecond
+                - 4: (s)econd
+                - 5: (m)inute
+                - 6: (h)hour
+                - 7: (d)ay
         """
-        command = f"{self.unit}SR {max_ramp:.2f} {unit_time}"
+        command = f"{self.unit}SR {max_ramp:.2f} {self.max_ramp_time_units[unit_time]}"
         line = await self._write_and_read(command)
         if not line or self.unit not in line:
             raise OSError("Could not set max ramp.")
 
     async def get_maxramp(self) -> dict[str, float | str]:
-        """Get the maximum ramp rate (firmware 10v05).
+        """Get the maximum ramp rate (firmware 7v11).
 
         Returns:
             max_ramp: The maximum ramp rate
@@ -640,7 +648,9 @@ class FlowController(FlowMeter):
         values = line.split(' ')
         if len(values) != 5:
             raise OSError("Could not read max ramp.")
+        unit_time_int = int(values[5])
         return {
             'max_ramp': float(values[1]),
             'units': str(values[4]),
+            'unit_time': next(key for key, val in self.max_ramp_time_units.items() if val == unit_time_int)
         }

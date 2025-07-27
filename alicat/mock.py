@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from random import choice, random
 from time import sleep
-from typing import Any
+from typing import Any, Literal
 from unittest.mock import MagicMock
 
 from .driver import FlowController as RealFlowController
@@ -37,12 +37,13 @@ class FlowController(RealFlowController):
             'volumetric_flow': 0.0,
         }
         self.ramp_config = { 'up': False, 'down': False, 'zero': False, 'power': False }
-        self.unit: str = unit
-        self.button_lock: bool = False
+        self.unit = unit
+        self.button_lock = False
         self.keys = ['pressure', 'temperature', 'volumetric_flow', 'mass_flow',
                      'setpoint', 'gas']
         self.firmware = '6v21.0-R22 Nov 30 2016,16:04:20'
         self.max_ramp = 0.0
+        self.max_ramp_time_unit = 'ms'
 
     async def get(self) -> dict[str, str | float]:
         """Return the full state."""
@@ -93,13 +94,15 @@ class FlowController(RealFlowController):
         """Set ramp config."""
         self.ramp_config = config
 
-    async def set_maxramp(self, max_ramp: float, unit_time: int) -> None:
+    async def set_maxramp(self, max_ramp: float, unit_time: Literal['ms' | 's' | 'm' | 'h' | 'd']) -> None:
         """Set the maximum ramp rate."""
         self.max_ramp = max_ramp
+        self.max_ramp_time_unit = unit_time
 
     async def get_maxramp(self) -> dict[str, float | str]:
         """Get the maximum ramp rate."""
         return {
             'max_ramp': self.max_ramp,
             'units': 'SLPM/s',
+            'unit_time': self.max_ramp_time_unit,
         }
