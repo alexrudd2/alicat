@@ -34,16 +34,16 @@ jobs:
         enable-cache: true
     - name: Install dependencies
       run: |
-        uv pip install --system --all-extras .
+        uv sync --all-extras
     - name: Lint with ruff
       run: |
-        ruff check .
+        uv venv ruff check .
     - name: Check types with mypy
       run: |
-         mypy alicat
+        uv venv mypy alicat
     - name: Pytest
       run: |
-        pytest
+        uv venv pytest
 
 permissions:
   contents: read
