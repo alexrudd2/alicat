@@ -76,3 +76,12 @@ async def test_ramp_config(config):
         await device.set_ramp_config(config)
         result = await device.get_ramp_config()
         assert config == result
+
+@pytest.mark.parametrize('control_point',
+    ['mass flow', 'vol flow', 'abs pressure', 'gauge pressure', 'diff pressure'])
+async def test_control_point(control_point):
+    """Confirm changing the control point works."""
+    async with FlowController(ADDRESS) as device:
+        await device._set_control_point(control_point)
+        result = await device._get_control_point()
+        assert control_point == result

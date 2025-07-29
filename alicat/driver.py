@@ -316,9 +316,10 @@ class FlowController(FlowMeter):
     that the "Input" option is set to "Serial".
     """
 
-    registers: ClassVar[dict] = {'mass flow': 0b00100101, 'vol flow': 0b00100100,
-                                 'abs pressure': 0b00100010, 'gauge pressure': 0b00100110,
-                                 'diff pressure': 0b00100111}
+    control_points: ClassVar[dict] = {
+        'mass flow': 37, 'vol flow': 36,
+        'abs pressure': 34, 'gauge pressure': 38, 'diff pressure': 39
+    }  # fixme: add remaining control points
 
     def __init__(self, address: str='/dev/ttyUSB0', unit: str='A', **kwargs: Any) -> None:
         """Connect this driver with the appropriate USB / serial port.
@@ -357,7 +358,7 @@ class FlowController(FlowMeter):
          * Volumetric flow (in units specified at time of order)
          * Mass flow (in units specified at time of order)
          * Flow setpoint (in units of control point)
-         * Flow control point (either 'flow' or 'pressure')
+         * Flow control point (e.g. 'mass flow' or 'abs pressure')
          * Total flow (only on models with the optional totalizer function)
          * Currently selected gas
 
@@ -543,21 +544,21 @@ class FlowController(FlowMeter):
             raise OSError("Could not read control point.")
         value = int(line.split('=')[-1])
         try:
-            cp = next(p for p, r in self.registers.items() if value == r)
+            cp = next(p for p, r in self.control_points.items() if value == r)
             self.control_point = cp
             return cp
         except StopIteration:
             raise ValueError(f"Unexpected register value: {value:d}") from None
 
     async def _set_control_point(self, point: str) -> None:
-        """Set whether to control on mass flow or pressure.
+        """Set the variable used as the control point.
 
         Args:
-            point: Either "flow" or "pressure".
+            point: 'mass flow', 'vol flow', 'abs pressure', 'gauge pressure', or 'diff pressure'
         """
-        if point not in self.registers:
-            raise ValueError("Control point must be 'flow' or 'pressure'.")
-        reg = self.registers[point]
+        if point not in self.control_points:
+            raise ValueError(f"Control point must be one of {list(self.control_points.keys())}.")
+        reg = self.control_points[point]
         command = f'{self.unit}W122={reg:d}'
         line = await self._write_and_read(command)
         if not line:

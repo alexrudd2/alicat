@@ -87,6 +87,9 @@ convention = "pep257"
 
 [tool.mypy]
 disallow_untyped_defs = true
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
 
 [tool.pytest.ini_options]
 addopts = "--cov=alicat"

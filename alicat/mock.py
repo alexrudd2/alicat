@@ -25,7 +25,7 @@ class FlowController(RealFlowController):
         self.hw = AsyncClientMock()
         self.hw.address = address
         self.open = True
-        self.control_point: str = choice(['flow', 'pressure'])
+        self.control_point: str = choice(list(self.control_points))
         self.state: dict[str, str | float] = {
             'setpoint': 10,
             'gas': 'N2',
@@ -53,16 +53,17 @@ class FlowController(RealFlowController):
         self.state['setpoint'] = setpoint
 
     async def _set_control_point(self, point: str) -> None:
-        """Set the control point, either 'flow' or 'pressure'."""
+        """Set the control point."""
+        assert point in self.control_points
         self.control_point = point
 
     async def _get_control_point(self) -> str:
-        """Return the control point, either 'flow' or 'pressure'."""
+        """Return the control point."""
         return self.control_point
 
     async def set_flow_rate(self, flowrate: float) -> None:
         """Set the flowrate setpoint."""
-        await self._set_control_point('flow')
+        await self._set_control_point('mass flow')
         await self._set_setpoint(flowrate)
 
     async def set_gas(self, gas: int | str) -> None:
@@ -73,7 +74,7 @@ class FlowController(RealFlowController):
 
     async def set_pressure(self, pressure: float) -> None:
         """Set the pressure setpoint."""
-        await self._set_control_point('pressure')
+        await self._set_control_point('abs pressure')
         await self._set_setpoint(pressure)
 
     async def lock(self) -> None:
