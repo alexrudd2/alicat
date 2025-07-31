@@ -94,7 +94,7 @@ class FlowController(RealFlowController):
         """Set ramp config."""
         self.ramp_config = config
 
-    async def set_maxramp(self, max_ramp: float, unit_time: Literal['ms' | 's' | 'm' | 'h' | 'd']) -> None:
+    async def set_maxramp(self, max_ramp: float, unit_time: Literal['ms', 's', 'm', 'h', 'd']) -> None:
         """Set the maximum ramp rate."""
         self.max_ramp = max_ramp
         self.max_ramp_time_unit = unit_time

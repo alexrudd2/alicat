@@ -617,7 +617,7 @@ class FlowController(FlowMeter):
         }
 
     async def set_maxramp(self, max_ramp: float,
-                          unit_time: Literal['ms' | 's' | 'm' | 'h' | 'd']) -> None:
+                          unit_time: Literal['ms', 's', 'm', 'h', 'd']) -> None:
         """Set the maximum ramp rate (firmware 7v11).
 
         Args:
