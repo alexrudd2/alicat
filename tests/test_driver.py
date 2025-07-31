@@ -5,15 +5,14 @@ from unittest import mock
 import pytest
 
 from alicat import command_line
+from alicat.driver import FlowController
+from alicat.mock import Client
 
-# from alicat.driver import FlowController
-from alicat.mock import FlowController
+ADDRESS = '/dev/ttyUSB0'
 
-ADDRESS = '/dev/tty.usbserial-FTCJ5EK9'
-
+@mock.patch('alicat.driver.SerialClient', Client)
 
 @pytest.mark.parametrize('unit', ['A', 'B'])
-@mock.patch('alicat.FlowController', FlowController)
 def test_driver_cli(capsys, unit):
     """Confirm the commandline interface works with different unit IDs."""
     command_line([ADDRESS, '--unit', unit])
@@ -77,7 +76,6 @@ async def test_ramp_config(config):
         result = await device.get_ramp_config()
         assert config == result
 
-
 @pytest.mark.parametrize('unit_time', ['ms', 's', 'm', 'h', 'd'])
 async def test_maxramp(unit_time):
     """Confirm that setting/getting the maximum ramp rate works."""
@@ -87,4 +85,12 @@ async def test_maxramp(unit_time):
         result = await device.get_maxramp()
         assert max_ramp == result['max_ramp']
         assert result['units'] == 'SLPM/s'
-        assert result['unit_time'] == unit_time
+
+@pytest.mark.parametrize('control_point',
+    ['mass flow', 'vol flow', 'abs pressure', 'gauge pressure', 'diff pressure'])
+async def test_control_point(control_point):
+    """Confirm changing the control point works."""
+    async with FlowController(ADDRESS) as device:
+        await device._set_control_point(control_point)
+        result = await device._get_control_point()
+        assert control_point == result

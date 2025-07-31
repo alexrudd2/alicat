@@ -11,7 +11,11 @@ from typing import Any, ClassVar, Literal
 
 from .util import Client, SerialClient, TcpClient, _is_float
 
-
+GASES = ['Air', 'Ar', 'CH4', 'CO', 'CO2', 'C2H6', 'H2', 'He',
+         'N2', 'N2O', 'Ne', 'O2', 'C3H8', 'n-C4H10', 'C2H2',
+         'C2H4', 'i-C2H10', 'Kr', 'Xe', 'SF6', 'C-25', 'C-10',
+         'C-8', 'C-2', 'C-75', 'A-75', 'A-25', 'A1025', 'Star29',
+         'P-5']
 class FlowMeter:
     """Python driver for Alicat Flow Meters.
 
@@ -24,18 +28,6 @@ class FlowMeter:
 
     # mapping of port names to a tuple of Client objects and their refcounts
     open_ports: ClassVar[dict[str, tuple[Client, int]]] = {}
-    gases: ClassVar[list] = ['Air', 'Ar', 'CH4', 'CO', 'CO2', 'C2H6', 'H2', 'He',
-                             'N2', 'N2O', 'Ne', 'O2', 'C3H8', 'n-C4H10', 'C2H2',
-                             'C2H4', 'i-C2H10', 'Kr', 'Xe', 'SF6', 'C-25', 'C-10',
-                             'C-8', 'C-2', 'C-75', 'A-75', 'A-25', 'A1025', 'Star29',
-                             'P-5']
-    max_ramp_time_units: ClassVar[dict[str, int]] = {
-        'ms': 3,
-        's': 4,
-        'm': 5,
-        'h': 6,
-        'd': 7
-    }
 
     def __init__(self, address: str = '/dev/ttyUSB0', unit: str = 'A', **kwargs: Any) -> None:
         """Connect this driver with the appropriate USB / serial port.
@@ -115,7 +107,7 @@ class FlowMeter:
     async def _write_and_read(self, command: str) -> str | None:
         """Wrap the communicator request, to call _test_controller_open() before any request."""
         self._test_controller_open()
-        return await self.hw._write_and_read(command)
+        return await self.hw.write_and_read(command)
 
     async def get(self) -> dict:
         """Get the current state of the flow controller.
@@ -176,12 +168,13 @@ class FlowMeter:
                 Gas mixes may only be called by their mix number.
         """
         if isinstance(gas, str):
-            if gas not in self.gases:
+            if gas not in GASES:
                 raise ValueError(f"{gas} not supported!")
-            gas_number = self.gases.index(gas)
+            gas_number = GASES.index(gas)
         else:
             gas_number = gas
         command = f'{self.unit}$$W46={gas_number}'
+        # fixme does this overwrite the upper bits??
         await self._write_and_read(command)
         reg46 = await self._write_and_read(f'{self.unit}$$R46')
         if not reg46:
@@ -215,10 +208,10 @@ class FlowMeter:
         if total_percent != 100:
             raise ValueError("Percentages of gas mix must add to 100%!")
 
-        if any(gas not in self.gases for gas in gases):
+        if any(gas not in GASES for gas in gases):
             raise ValueError("Gas not supported!")
 
-        gas_list = [f'{percent} {self.gases.index(gas)}' for gas, percent in gases.items()]
+        gas_list = [f'{percent} {GASES.index(gas)}' for gas, percent in gases.items()]
         command = ' '.join([
             self.unit,
             'GM',
@@ -289,7 +282,7 @@ class FlowMeter:
     async def flush(self) -> None:
         """Read all available information. Use to clear queue."""
         self._test_controller_open()
-        await self.hw._clear()
+        await self.hw.clear()
 
     async def close(self) -> None:
         """Close the flow meter. Call this on program termination.
@@ -309,6 +302,17 @@ class FlowMeter:
                 del FlowMeter.open_ports[port]
         self.open = False
 
+CONTROL_POINTS = {
+    'mass flow': 37, 'vol flow': 36,
+    'abs pressure': 34, 'gauge pressure': 38, 'diff pressure': 39
+}  # fixme: add remaining control points
+MAX_RAMP_TIME_UNITS = {
+    'ms': 3,
+    's': 4,
+    'm': 5,
+    'h': 6,
+    'd': 7
+}
 
 class FlowController(FlowMeter):
     """Python driver for Alicat Flow Controllers.
@@ -322,10 +326,6 @@ class FlowController(FlowMeter):
     To set up your Alicat flow controller, power on the device and make sure
     that the "Input" option is set to "Serial".
     """
-
-    registers: ClassVar[dict] = {'mass flow': 0b00100101, 'vol flow': 0b00100100,
-                                 'abs pressure': 0b00100010, 'gauge pressure': 0b00100110,
-                                 'diff pressure': 0b00100111}
 
     def __init__(self, address: str='/dev/ttyUSB0', unit: str='A', **kwargs: Any) -> None:
         """Connect this driver with the appropriate USB / serial port.
@@ -353,7 +353,7 @@ class FlowController(FlowMeter):
         if 'R122' not in command:
             await self._init_task
         self._test_controller_open()
-        return await self.hw._write_and_read(command)
+        return await self.hw.write_and_read(command)
 
     async def get(self) -> dict:
         """Get the current state of the flow controller.
@@ -364,7 +364,7 @@ class FlowController(FlowMeter):
          * Volumetric flow (in units specified at time of order)
          * Mass flow (in units specified at time of order)
          * Flow setpoint (in units of control point)
-         * Flow control point (either 'flow' or 'pressure')
+         * Flow control point (e.g. 'mass flow' or 'abs pressure')
          * Total flow (only on models with the optional totalizer function)
          * Currently selected gas
 
@@ -550,21 +550,21 @@ class FlowController(FlowMeter):
             raise OSError("Could not read control point.")
         value = int(line.split('=')[-1])
         try:
-            cp = next(p for p, r in self.registers.items() if value == r)
+            cp = next(p for p, r in CONTROL_POINTS.items() if value == r)
             self.control_point = cp
             return cp
         except StopIteration:
             raise ValueError(f"Unexpected register value: {value:d}") from None
 
     async def _set_control_point(self, point: str) -> None:
-        """Set whether to control on mass flow or pressure.
+        """Set the variable used as the control point.
 
         Args:
-            point: Either "flow" or "pressure".
+            point: 'mass flow', 'vol flow', 'abs pressure', 'gauge pressure', or 'diff pressure'
         """
-        if point not in self.registers:
-            raise ValueError("Control point must be 'flow' or 'pressure'.")
-        reg = self.registers[point]
+        if point not in CONTROL_POINTS:
+            raise ValueError(f"Control point must be one of {list(CONTROL_POINTS.keys())}.")
+        reg = CONTROL_POINTS[point]
         command = f'{self.unit}W122={reg:d}'
         line = await self._write_and_read(command)
         if not line:
@@ -629,7 +629,7 @@ class FlowController(FlowMeter):
                 - 6: (h)hour
                 - 7: (d)ay
         """
-        command = f"{self.unit}SR {max_ramp:.2f} {self.max_ramp_time_units[unit_time]}"
+        command = f"{self.unit}SR {max_ramp:.2f} {MAX_RAMP_TIME_UNITS[unit_time]}"
         line = await self._write_and_read(command)
         if not line or self.unit not in line:
             raise OSError("Could not set max ramp.")
@@ -648,9 +648,7 @@ class FlowController(FlowMeter):
         values = line.split(' ')
         if len(values) != 5:
             raise OSError("Could not read max ramp.")
-        unit_time_int = int(values[5])
         return {
             'max_ramp': float(values[1]),
             'units': str(values[4]),
-            'unit_time': next(key for key, val in self.max_ramp_time_units.items() if val == unit_time_int)
         }
