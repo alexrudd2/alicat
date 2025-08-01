@@ -6,7 +6,7 @@ import contextlib
 from random import choice, random
 from unittest.mock import AsyncMock, MagicMock
 
-from .driver import CONTROL_POINTS, GASES
+from .driver import CONTROL_POINTS, GASES, MAX_RAMP_TIME_UNITS
 from .util import Client as RealClient
 
 
@@ -65,6 +65,14 @@ class Client(RealClient):
                 f" {1 if config['zero'] else 0}"
                 f" {1 if config['power'] else 0}")
 
+    def _create_max_ramp_response(self) -> str:
+        """Generate a response to setting or getting the max ramp rate."""
+        return (f"{self.unit}"
+                f" {self.max_ramp:+07.2f}"
+                f" 37"  # SLPM  # fixme make dynamic
+                f" {MAX_RAMP_TIME_UNITS[self.max_ramp_time_unit]}"
+                f" SLPM/s")
+
     def _handle_write(self, data: bytes) -> None:
         """Act on writes sent to the mock client, updating internal state and setting self._next_reply if necessary."""
         msg = data.decode().strip()
@@ -85,6 +93,25 @@ class Client(RealClient):
             self._next_reply = f"{self.unit}   122 = {cp}"
         elif msg == 'R122':  # read control point
             self._next_reply = f"{self.unit}   122 = {CONTROL_POINTS[self.control_point]}"
+        elif msg == 'LSRC':  # get ramp config
+            self._next_reply = self._create_ramp_response()
+        elif 'LSRC' in msg:  # set ramp config
+            values = msg[5:].split(' ')
+            self.ramp_config = {
+                'up': values[0] == '1',
+                'down': values[1] == '1',
+                'zero': values[2] == '1',
+                'power': values[3] == '1',
+            }
+            self._next_reply = self._create_ramp_response()
+        elif msg == 'SR':  # get max ramp rate
+            self._next_reply = self._create_max_ramp_response()
+        elif 'SR' in msg:  # set max ramp rate
+            values = msg.split()
+            self.max_ramp = float(values[1])
+            unit_time_int = int(values[2])
+            self.max_ramp_time_unit = next(key for key, val in MAX_RAMP_TIME_UNITS.items() if val == unit_time_int)
+            self._next_reply = self._create_max_ramp_response()
         elif msg[0] == 'S':  # set setpoint
             self.state['setpoint'] = float(msg[1:])
             self._next_reply = self._create_dataframe()
@@ -98,17 +125,6 @@ class Client(RealClient):
             gas_index = GASES.index(self.state['gas'])  # type: ignore
             reg46_value = gas_index & 0x1FF  # encode gas number in low 9 bits
             self._next_reply = f"{self.unit}   046 = {reg46_value}"
-        elif msg == 'LSRC':  # get ramp config
-            self._next_reply = self._create_ramp_response()
-        elif 'LSRC' in msg:  # set ramp config
-            values = msg[5:].split(' ')
-            self.ramp_config = {
-                'up': values[0] == '1',
-                'down': values[1] == '1',
-                'zero': values[2] == '1',
-                'power': values[3] == '1',
-            }
-            self._next_reply = self._create_ramp_response()
         elif msg == 'VE':  # get firmware
             self._next_reply = self.firmware
         else:
