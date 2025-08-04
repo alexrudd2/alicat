@@ -6,7 +6,7 @@ import contextlib
 from random import choice, random
 from unittest.mock import AsyncMock, MagicMock
 
-from .driver import CONTROL_POINTS, GASES, MAX_RAMP_TIME_UNITS
+from .driver import CONTROL_POINTS, GASES, MAX_RAMP_TIME_UNITS, MaxRampTimeUnit
 from .util import Client as RealClient
 
 
@@ -40,6 +40,7 @@ class Client(RealClient):
         self.keys = ['pressure', 'temperature', 'volumetric_flow', 'mass_flow',
                      'setpoint', 'gas']
         self.firmware = '6v21.0-R22 Nov 30 2016,16:04:20'
+        self.max_ramp_time_unit : MaxRampTimeUnit
 
     async def _handle_connection(self) -> None:
         pass

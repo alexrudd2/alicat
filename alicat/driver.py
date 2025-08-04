@@ -306,7 +306,8 @@ CONTROL_POINTS = {
     'mass flow': 37, 'vol flow': 36,
     'abs pressure': 34, 'gauge pressure': 38, 'diff pressure': 39
 }  # fixme: add remaining control points
-MAX_RAMP_TIME_UNITS = {
+MaxRampTimeUnit = Literal['ms', 's', 'm', 'h', 'd']
+MAX_RAMP_TIME_UNITS: dict[MaxRampTimeUnit, int] = {
     'ms': 3,
     's': 4,
     'm': 5,
@@ -617,7 +618,7 @@ class FlowController(FlowMeter):
         }
 
     async def set_maxramp(self, max_ramp: float,
-                          unit_time: Literal['ms', 's', 'm', 'h', 'd']) -> None:
+                          unit_time: MaxRampTimeUnit) -> None:
         """Set the maximum ramp rate (firmware 7v11).
 
         Args:
