@@ -68,10 +68,10 @@ class Client(RealClient):
     def _create_max_ramp_response(self) -> str:
         """Generate a response to setting or getting the max ramp rate."""
         return (f"{self.unit}"
-                f" {self.max_ramp:+07.2f}"
-                f" 37"  # SLPM  # fixme make dynamic
+                f" {self.max_ramp:.7f}"
+                f" 7"  # SLPM  # fixme make dynamic
                 f" {MAX_RAMP_TIME_UNITS[self.max_ramp_time_unit]}"
-                f" SLPM/s")
+                f" SLPM/{self.max_ramp_time_unit}")
 
     def _handle_write(self, data: bytes) -> None:
         """Act on writes sent to the mock client, updating internal state and setting self._next_reply if necessary."""

@@ -84,7 +84,7 @@ async def test_maxramp(unit_time):
         await device.set_maxramp(max_ramp, unit_time)
         result = await device.get_maxramp()
         assert max_ramp == result['max_ramp']
-        assert result['units'] == 'SLPM/s'
+        assert result['units'] == f'SLPM/{unit_time}'  # fixme make units dynamic
 
 @pytest.mark.parametrize('control_point',
     ['mass flow', 'vol flow', 'abs pressure', 'gauge pressure', 'diff pressure'])
