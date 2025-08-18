@@ -110,6 +110,16 @@ async def test_ramp_config(config):
         result = await device.get_ramp_config()
         assert config == result
 
+@pytest.mark.parametrize('unit_time', ['ms', 's', 'm', 'h', 'd'])
+async def test_maxramp(unit_time):
+    """Confirm that setting/getting the maximum ramp rate works."""
+    async with FlowController(ADDRESS) as device:
+        max_ramp = round(uniform(0.01, 0.1), 2)
+        await device.set_maxramp(max_ramp, unit_time)
+        result = await device.get_maxramp()
+        assert max_ramp == result['max_ramp']
+        assert result['units'] == f'SLPM/{unit_time}'  # fixme make units dynamic
+
 @pytest.mark.parametrize('control_point',
     ['mass flow', 'vol flow', 'abs pressure', 'gauge pressure', 'diff pressure'])
 async def test_control_point(control_point):
