@@ -110,6 +110,14 @@ async def test_ramp_config(config):
         result = await device.get_ramp_config()
         assert config == result
 
+@pytest.mark.parametrize('rate', [0.01, 1, 100])
+async def test_ramp_rate(rate):
+    """Confirm changing rate works."""
+    async with FlowController(ADDRESS) as device:
+        await device.set_ramp_rate(rate)
+        result = await device.get_ramp_rate()
+        assert (result - rate) / rate < 0.01
+        
 @pytest.mark.parametrize('control_point',
     ['mass flow', 'vol flow', 'abs pressure', 'gauge pressure', 'diff pressure'])
 async def test_control_point(control_point):

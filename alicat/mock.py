@@ -3,16 +3,16 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from random import choice, random
+from random import choice, random, randrange
 from unittest.mock import AsyncMock, MagicMock
 
-from .driver import CONTROL_POINTS, GASES
+from .driver import CONTROL_POINTS, GASES, TIME_UNITS, FLOW_UNITS, PRESS_UNITS, TIME_CODES
 from .util import Client as RealClient
 
 
 class Client(RealClient):
     """Mock the alicat communication client."""
-
+    
     def __init__(self, address: str) -> None:
         super().__init__(timeout=0.01)
         self.writer = MagicMock(spec=asyncio.StreamWriter)
@@ -36,6 +36,11 @@ class Client(RealClient):
             'volumetric_flow': 0.0,
         }
         self.ramp_config = { 'up': False, 'down': False, 'zero': False, 'power': False }
+
+        self.ramp_rate = (random() * 100)
+        self.time_unit = choice(list(TIME_UNITS.keys()))
+        self.flow_unit = choice(list(FLOW_UNITS.keys()))
+        
         self.button_lock: bool = False
         self.keys = ['pressure', 'temperature', 'volumetric_flow', 'mass_flow',
                      'setpoint', 'gas']
@@ -65,6 +70,14 @@ class Client(RealClient):
                 f" {1 if config['zero'] else 0}"
                 f" {1 if config['power'] else 0}")
 
+    def _create_ramp_rate(self) -> str:
+        
+        return (f"{self.unit} "
+                f"{self.ramp_rate:+07.2f} "
+                f"{FLOW_UNITS[self.flow_unit]}"
+                f"{TIME_UNITS[self.time_unit]}"
+                f"{FLOW_UNITS[self.flow_unit]}/{TIME_UNITS[self.time_unit]}")
+
     def _handle_write(self, data: bytes) -> None:
         """Act on writes sent to the mock client, updating internal state and setting self._next_reply if necessary."""
         msg = data.decode().strip()
@@ -85,7 +98,7 @@ class Client(RealClient):
             self._next_reply = f"{self.unit}   122 = {cp}"
         elif msg == 'R122':  # read control point
             self._next_reply = f"{self.unit}   122 = {CONTROL_POINTS[self.control_point]}"
-        elif msg[0] == 'S':  # set setpoint
+        elif msg[0] == 'S' and msg[1] != 'R':  # set setpoint
             self.state['setpoint'] = float(msg[1:])
             self._next_reply = self._create_dataframe()
         elif msg[0:6] == '$$W46=':  # set gas via reg46
@@ -109,6 +122,16 @@ class Client(RealClient):
                 'power': values[3] == '1',
             }
             self._next_reply = self._create_ramp_response()
+            
+        elif msg == 'SR': # get max ramp rate
+            self._next_reply = self._create_ramp_rate()
+
+        elif 'SR' in msg: # set ramp rate
+            values = msg[3:].split(' ')
+            self.ramp_rate = float(values[0])
+            self.time_unit = TIME_CODES[int(values[1])]
+            self._next_reply = self._create_ramp_rate()
+        
         elif msg == 'VE':  # get firmware
             self._next_reply = self.firmware
         elif msg == '$$PC':

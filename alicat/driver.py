@@ -16,6 +16,48 @@ GASES = ['Air', 'Ar', 'CH4', 'CO', 'CO2', 'C2H6', 'H2', 'He',
          'C2H4', 'i-C2H10', 'Kr', 'Xe', 'SF6', 'C-25', 'C-10',
          'C-8', 'C-2', 'C-75', 'A-75', 'A-25', 'A1025', 'Star29',
          'P-5']
+
+TIME_UNITS = {
+    'ms': 3,
+    's': 4,
+    'm': 5, # sic from the serial primer, m means minute...
+    'hour': 6,
+    'day': 7
+}
+
+TIME_CODES = {v: k for (k, v) in TIME_UNITS.items()} 
+
+FLOW_UNITS = {
+    'SLPM': 7,
+    'SL/h': 8,
+    'SCCS': 11,
+    'SCCM': 12,
+    'SCFM': 18,
+    'SCFH': 19,
+    'SCFD': 21,
+} # TODO complete list
+
+MASS_FLOW_UNITS = {
+    'g/s': 66
+} # TODO complete list
+
+PRESS_UNITS = {
+    'Pa': 2,
+    'hPa': 3,
+    'kPa': 4,
+    'MPa': 5,
+    'mbar': 6,
+    'bar': 7,
+    'PSI': 10,
+    'PSF': 11
+} # TODO complete list
+
+DEFAULT_UNITS = {
+    'flow': 'SLPM',
+    'pressure': 'Pa',
+    'time': 's'
+}
+
 class FlowMeter:
     """Python driver for Alicat Flow Meters.
 
@@ -30,7 +72,7 @@ class FlowMeter:
     open_ports: ClassVar[dict[str, tuple[Client, int]]] = {}
 
 
-    def __init__(self, address: str = '/dev/ttyUSB0', unit: str = 'A', **kwargs: Any) -> None:
+    def __init__(self, address: str = '/dev/ttyUSB0', unit: str = 'A', phy_units: Dict['str','str'] = DEFAULT_UNITS, **kwargs: Any) -> None:
         """Connect this driver with the appropriate USB / serial port.
 
         Args:
@@ -50,6 +92,7 @@ class FlowMeter:
             self.hw = TcpClient(address=address, **kwargs)
 
         self.unit = unit
+        self.phy_units = phy_units
         self.keys = ['pressure', 'temperature', 'volumetric_flow', 'mass_flow',
                      'setpoint', 'gas']
         self.open = True
@@ -321,14 +364,14 @@ class FlowController(FlowMeter):
     that the "Input" option is set to "Serial".
     """
 
-    def __init__(self, address: str='/dev/ttyUSB0', unit: str='A', **kwargs: Any) -> None:
+    def __init__(self, address: str='/dev/ttyUSB0', unit: str='A', phy_units: Dict['str','str'] = DEFAULT_UNITS, **kwargs: Any) -> None:
         """Connect this driver with the appropriate USB / serial port.
 
         Args:
             address: The serial port or TCP address:port. Default '/dev/ttyUSB0'.
             unit: The Alicat-specified unit ID, A-Z. Default 'A'.
         """
-        FlowMeter.__init__(self, address, unit, **kwargs)
+        FlowMeter.__init__(self, address, unit, phy_units, **kwargs)
         self.control_point = None
         async def _init_control_point() -> None:
             self.control_point = await self._get_control_point()
@@ -610,15 +653,31 @@ class FlowController(FlowMeter):
             'power': values[3] == '1',
         }
 
-    async def get_ramp_rate(self) -> str:
-        """get the target ramp rate"""
+    async def get_ramp_rate(self) -> float:
+        """get the target ramp rate
+
+        Returns:
+          * the rate in Engineering unit / time unit
+        """
         command = f'{self.unit}SR'
         line = await self._write_and_read(command)
-        return line
+        if not line or self.unit not in line:
+            raise OSError("Could not read ramp rate.")
+        values = line[2:].split(' ')
+        if len(values) != 4:
+            raise OSError("Could not read ramp rate.")
+        # here we should test physical units compatibility
+        self.phy_units['time'] = TIME_CODES[int(values[2])]
+        return float(values[0])
         
-    async def set_ramp_rate(self, rate: float, unit: int) -> str:
-        """Set the target ramp rate"""
-        command = f'{self.unit}SR {rate:.2f} {unit}'
+        
+    async def set_ramp_rate(self, rate: float):
+        """Set the target ramp rate
+        Parameters:
+            * rate : the rate in Engineering unit/time unit
+        """
+        tu = self.phy_units['time']
+        command = f'{self.unit}SR {rate:.2f} {TIME_UNITS[tu]}'
         line = await self._write_and_read(command)
         if not line or self.unit not in line:
             raise OSError("Could not set ramp rate.")
