@@ -119,6 +119,7 @@ async def test_ramp_rate(rate):
         assert (result - rate) / rate < 0.01
 
 async def test_get_time_unit():
+    """Confirm getter works for time units."""
     async with FlowController(ADDRESS) as device:
         await device.set_ramp_rate(0)
         result = await device.get_time_unit()
