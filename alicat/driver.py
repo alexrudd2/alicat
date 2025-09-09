@@ -694,6 +694,5 @@ class FlowController(FlowMeter):
         tu = self.phy_units['time']
         command = f'{self.unit}SR {rate:.2f} {TIME_UNITS[tu]}'
         line = await self._write_and_read(command)
-        print("line:", line)
         if not line or self.unit not in line:
             raise OSError("Could not set ramp rate.")
