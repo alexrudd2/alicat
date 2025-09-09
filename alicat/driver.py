@@ -613,9 +613,12 @@ class FlowController(FlowMeter):
     async def get_ramp_rate(self) -> str:
         """get the target ramp rate"""
         command = f'{self.unit}SR'
-        await self._write_and_read(command)
+        line = await self._write_and_read(command)
+        return line
         
     async def set_ramp_rate(self, rate: float, unit: int) -> str:
         """Set the target ramp rate"""
         command = f'{self.unit}SR {rate:.2f} {unit}'
-        await self._write_and_read(command)
+        line = await self._write_and_read(command)
+        if not line or self.unit not in line:
+            raise OSError("Could not set ramp rate.")
