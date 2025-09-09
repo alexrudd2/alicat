@@ -74,9 +74,9 @@ class Client(RealClient):
         
         return (f"{self.unit} "
                 f"{self.ramp_rate:+07.2f} "
-                f"{FLOW_UNITS[self.flow_unit]}"
-                f"{TIME_UNITS[self.time_unit]}"
-                f"{FLOW_UNITS[self.flow_unit]}/{TIME_UNITS[self.time_unit]}")
+                f"{FLOW_UNITS[self.flow_unit]} "
+                f"{TIME_UNITS[self.time_unit]} "
+                f"{self.flow_unit}/{self.time_unit}")
 
     def _handle_write(self, data: bytes) -> None:
         """Act on writes sent to the mock client, updating internal state and setting self._next_reply if necessary."""

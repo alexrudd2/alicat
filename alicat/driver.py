@@ -663,6 +663,7 @@ class FlowController(FlowMeter):
         line = await self._write_and_read(command)
         if not line or self.unit not in line:
             raise OSError("Could not read ramp rate.")
+        print(line)
         values = line[2:].split(' ')
         if len(values) != 4:
             raise OSError("Could not read ramp rate.")
