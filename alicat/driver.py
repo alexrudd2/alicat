@@ -696,7 +696,7 @@ class FlowController(FlowMeter):
         self.phy_units["time"] = tu
         return tu
 
-    async def set_ramp_rate(self, rate: float):
+    async def set_ramp_rate(self, rate: float) -> None:
         """Set the target ramp rate.
 
         Parameters:
