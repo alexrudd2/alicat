@@ -609,3 +609,13 @@ class FlowController(FlowMeter):
             'zero': values[2] == '1',
             'power': values[3] == '1',
         }
+
+    async def get_ramp_rate(self) -> str:
+        """get the target ramp rate"""
+        command = f'{self.unit}SR'
+        await self._write_and_read(command)
+        
+    async def set_ramp_rate(self, rate: float, unit: int) -> str:
+        """Set the target ramp rate"""
+        command = f'{self.unit}SR {rate:.2f} {unit}'
+        await self._write_and_read(command)
