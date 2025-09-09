@@ -117,6 +117,12 @@ async def test_ramp_rate(rate):
         await device.set_ramp_rate(rate)
         result = await device.get_ramp_rate()
         assert (result - rate) / rate < 0.01
+
+async def test_get_time_unit():
+    async with FlowController(ADDRESS) as device:
+        await device.set_ramp_rate(0)
+        result = await device.get_time_unit()
+        assert result == device.phy_units['time']
         
 @pytest.mark.parametrize('control_point',
     ['mass flow', 'vol flow', 'abs pressure', 'gauge pressure', 'diff pressure'])

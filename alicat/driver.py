@@ -663,15 +663,29 @@ class FlowController(FlowMeter):
         line = await self._write_and_read(command)
         if not line or self.unit not in line:
             raise OSError("Could not read ramp rate.")
-        print(line)
         values = line[2:].split(' ')
         if len(values) != 4:
             raise OSError("Could not read ramp rate.")
         # here we should test physical units compatibility
         self.phy_units['time'] = TIME_CODES[int(values[2])]
         return float(values[0])
-        
-        
+
+    async def get_time_unit(self) -> str:
+        "get the time unit of the ramp rate and updates its internal attribute"
+        command = f'{self.unit}SR'
+        line = await self._write_and_read(command)
+        if not line or self.unit not in line:
+            raise OSError("Could not read time unit.")
+        values = line[2:].split(' ')
+        if len(values) != 4:
+            raise OSError("Could not read time unit(1).")
+        units = values[3].split("/")
+        if len(units) != 2:
+            raise OSError("Could not read time unit(2).")
+        tu = units[1]
+        self.phy_units["time"] = tu
+        return tu
+
     async def set_ramp_rate(self, rate: float):
         """Set the target ramp rate
         Parameters:
@@ -680,5 +694,6 @@ class FlowController(FlowMeter):
         tu = self.phy_units['time']
         command = f'{self.unit}SR {rate:.2f} {TIME_UNITS[tu]}'
         line = await self._write_and_read(command)
+        print("line:", line)
         if not line or self.unit not in line:
             raise OSError("Could not set ramp rate.")
