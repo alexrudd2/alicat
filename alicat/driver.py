@@ -25,7 +25,7 @@ TIME_UNITS = {
     'day': 7
 }
 
-TIME_CODES = {v: k for (k, v) in TIME_UNITS.items()} 
+TIME_CODES = {v: k for (k, v) in TIME_UNITS.items()}
 
 FLOW_UNITS = {
     'SLPM': 7,
@@ -72,7 +72,7 @@ class FlowMeter:
     open_ports: ClassVar[dict[str, tuple[Client, int]]] = {}
 
 
-    def __init__(self, address: str = '/dev/ttyUSB0', unit: str = 'A', phy_units: Dict['str','str'] = DEFAULT_UNITS, **kwargs: Any) -> None:
+    def __init__(self, address: str = '/dev/ttyUSB0', unit: str = 'A', phy_units: Dict[str,str] = DEFAULT_UNITS, **kwargs: Any) -> None:
         """Connect this driver with the appropriate USB / serial port.
 
         Args:
@@ -364,7 +364,7 @@ class FlowController(FlowMeter):
     that the "Input" option is set to "Serial".
     """
 
-    def __init__(self, address: str='/dev/ttyUSB0', unit: str='A', phy_units: Dict['str','str'] = DEFAULT_UNITS, **kwargs: Any) -> None:
+    def __init__(self, address: str='/dev/ttyUSB0', unit: str='A', phy_units: Dict[str,str] = DEFAULT_UNITS, **kwargs: Any) -> None:
         """Connect this driver with the appropriate USB / serial port.
 
         Args:
@@ -654,7 +654,7 @@ class FlowController(FlowMeter):
         }
 
     async def get_ramp_rate(self) -> float:
-        """get the target ramp rate
+        """Get the target ramp rate
 
         Returns:
           * the rate in Engineering unit / time unit
@@ -671,7 +671,7 @@ class FlowController(FlowMeter):
         return float(values[0])
 
     async def get_time_unit(self) -> str:
-        "get the time unit of the ramp rate and updates its internal attribute"
+        """Get the time unit of the ramp rate and updates its internal attribute"""
         command = f'{self.unit}SR'
         line = await self._write_and_read(command)
         if not line or self.unit not in line:

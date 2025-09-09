@@ -123,7 +123,7 @@ async def test_get_time_unit():
         await device.set_ramp_rate(0)
         result = await device.get_time_unit()
         assert result == device.phy_units['time']
-        
+
 @pytest.mark.parametrize('control_point',
     ['mass flow', 'vol flow', 'abs pressure', 'gauge pressure', 'diff pressure'])
 async def test_control_point(control_point):

@@ -3,16 +3,16 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from random import choice, random, randrange
+from random import choice, random
 from unittest.mock import AsyncMock, MagicMock
 
-from .driver import CONTROL_POINTS, GASES, TIME_UNITS, FLOW_UNITS, PRESS_UNITS, TIME_CODES
+from .driver import CONTROL_POINTS, FLOW_UNITS, GASES, TIME_CODES, TIME_UNITS
 from .util import Client as RealClient
 
 
 class Client(RealClient):
     """Mock the alicat communication client."""
-    
+
     def __init__(self, address: str) -> None:
         super().__init__(timeout=0.01)
         self.writer = MagicMock(spec=asyncio.StreamWriter)
@@ -40,7 +40,7 @@ class Client(RealClient):
         self.ramp_rate = (random() * 100)
         self.time_unit = choice(list(TIME_UNITS.keys()))
         self.flow_unit = choice(list(FLOW_UNITS.keys()))
-        
+
         self.button_lock: bool = False
         self.keys = ['pressure', 'temperature', 'volumetric_flow', 'mass_flow',
                      'setpoint', 'gas']
@@ -71,7 +71,7 @@ class Client(RealClient):
                 f" {1 if config['power'] else 0}")
 
     def _create_ramp_rate(self) -> str:
-        
+
         return (f"{self.unit} "
                 f"{self.ramp_rate:+07.2f} "
                 f"{FLOW_UNITS[self.flow_unit]} "
@@ -122,7 +122,7 @@ class Client(RealClient):
                 'power': values[3] == '1',
             }
             self._next_reply = self._create_ramp_response()
-            
+
         elif msg == 'SR': # get max ramp rate
             self._next_reply = self._create_ramp_rate()
 
@@ -131,7 +131,7 @@ class Client(RealClient):
             self.ramp_rate = float(values[0])
             self.time_unit = TIME_CODES[int(values[1])]
             self._next_reply = self._create_ramp_rate()
-        
+
         elif msg == 'VE':  # get firmware
             self._next_reply = self.firmware
         elif msg == '$$PC':
