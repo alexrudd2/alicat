@@ -7,7 +7,7 @@ Copyright (C) 2023 NuMat Technologies
 from __future__ import annotations
 
 import asyncio
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from .util import Client, SerialClient, TcpClient, _is_float
 
@@ -28,7 +28,6 @@ class FlowMeter:
 
     # mapping of port names to a tuple of Client objects and their refcounts
     open_ports: ClassVar[dict[str, tuple[Client, int]]] = {}
-
 
     def __init__(self, address: str = '/dev/ttyUSB0', unit: str = 'A', **kwargs: Any) -> None:
         """Connect this driver with the appropriate USB / serial port.
@@ -304,9 +303,17 @@ class FlowMeter:
         self.open = False
 
 CONTROL_POINTS = {
-        'mass flow': 37, 'vol flow': 36,
-        'abs pressure': 34, 'gauge pressure': 38, 'diff pressure': 39
-    }  # fixme: add remaining control points
+    'mass flow': 37, 'vol flow': 36,
+    'abs pressure': 34, 'gauge pressure': 38, 'diff pressure': 39
+}  # fixme: add remaining control points
+MaxRampTimeUnit = Literal['ms', 's', 'm', 'h', 'd']
+MAX_RAMP_TIME_UNITS: dict[MaxRampTimeUnit, int] = {
+    'ms': 3,
+    's': 4,
+    'm': 5,
+    'h': 6,
+    'd': 7
+}
 
 class FlowController(FlowMeter):
     """Python driver for Alicat Flow Controllers.
@@ -608,4 +615,41 @@ class FlowController(FlowMeter):
             'down': values[1] == '1',
             'zero': values[2] == '1',
             'power': values[3] == '1',
+        }
+
+    async def set_maxramp(self, max_ramp: float,
+                          unit_time: MaxRampTimeUnit) -> None:
+        """Set the maximum ramp rate (firmware 7v11).
+
+        Args:
+            max_ramp: The maximum ramp rate
+            unit_time: The units of the ramp rate
+                - 3: (m)illisecond
+                - 4: (s)econd
+                - 5: (m)inute
+                - 6: (h)hour
+                - 7: (d)ay
+        """
+        command = f"{self.unit}SR {max_ramp:.2f} {MAX_RAMP_TIME_UNITS[unit_time]}"
+        line = await self._write_and_read(command)
+        if not line or self.unit not in line:
+            raise OSError("Could not set max ramp.")
+
+    async def get_maxramp(self) -> dict[str, float | str]:
+        """Get the maximum ramp rate (firmware 7v11).
+
+        Returns:
+            max_ramp: The maximum ramp rate
+            units: The units string returned from the controller
+        """
+        command = f"{self.unit}SR"
+        line = await self._write_and_read(command)
+        if not line or self.unit not in line:
+            raise OSError("Could not read max ramp.")
+        values = line.split(' ')
+        if len(values) != 5:
+            raise OSError("Could not read max ramp.")
+        return {
+            'max_ramp': float(values[1]),
+            'units': str(values[4]),
         }
