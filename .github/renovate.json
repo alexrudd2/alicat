@@ -19,6 +19,7 @@
       "matchPackageNames": [
         "/mypy/",
         "/pre-commit/",
+        "/pytest/",
         "/ruff/",
         "python-jsonschema/check-jsonschema"
       ]

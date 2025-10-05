@@ -1,31 +1,31 @@
 """Mock for offline testing of `FlowController`s."""
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from random import choice, random
-from time import sleep
-from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
-from .driver import FlowController as RealFlowController
-
-
-class AsyncClientMock(MagicMock):
-    """Magic mock that works with async methods."""
-
-    async def __call__(self, *args, **kwargs):  # type: ignore [no-untyped-def]
-        """Convert regular mocks into into an async coroutine."""
-        return super().__call__(*args, **kwargs)
+from .driver import CONTROL_POINTS, GASES, MAX_RAMP_TIME_UNITS, MaxRampTimeUnit
+from .util import Client as RealClient
 
 
-class FlowController(RealFlowController):
-    """Mocks an Alicat MFC for offline testing."""
+class Client(RealClient):
+    """Mock the alicat communication client."""
 
-    def __init__(self, address: str, unit: str = 'A', *args: Any, **kwargs: Any) -> None:
-        """Initialize the device client."""
-        self.hw = AsyncClientMock()
-        self.hw.address = address
+    def __init__(self, address: str) -> None:
+        super().__init__(timeout=0.01)
+        self.writer = MagicMock(spec=asyncio.StreamWriter)
+        self.writer.write.side_effect=self._handle_write
+        self.reader = AsyncMock(spec=asyncio.StreamReader)
+        self.reader.read.return_value = self.eol
+        self.reader.readuntil.side_effect = self._handle_read
+
         self.open = True
-        self.control_point: str = choice(['flow', 'pressure'])
+        self._next_reply = ''
+
+        self.open = True
+        self.control_point: str = choice(list(CONTROL_POINTS))  # type:ignore[assignment]
         self.state: dict[str, str | float] = {
             'setpoint': 10,
             'gas': 'N2',
@@ -33,61 +33,112 @@ class FlowController(RealFlowController):
             'pressure': random() * 50.0,
             'temperature': random() * 50.0,
             'total_flow': 0.0,
-            'unit': unit,
             'volumetric_flow': 0.0,
         }
         self.ramp_config = { 'up': False, 'down': False, 'zero': False, 'power': False }
-        self.unit: str = unit
         self.button_lock: bool = False
         self.keys = ['pressure', 'temperature', 'volumetric_flow', 'mass_flow',
                      'setpoint', 'gas']
         self.firmware = '6v21.0-R22 Nov 30 2016,16:04:20'
+        self.max_ramp_time_unit : MaxRampTimeUnit
 
-    async def get(self) -> dict[str, str | float]:
-        """Return the full state."""
-        sleep(random() * 0.25)
-        return self.state
+    async def _handle_connection(self) -> None:
+        pass
 
-    async def _set_setpoint(self, setpoint: float) -> None:
-        """Set the target setpoint."""
-        self.state['setpoint'] = setpoint
+    def _create_dataframe(self) -> str:
+        """Generate a typical 'dataframe' with current operating conditions."""
+        return (
+            f"{self.unit} "
+            f"{self.state['pressure']:+07.2f} "
+            f"{self.state['temperature']:+07.2f} "
+            f"{self.state['volumetric_flow']:+07.2f} "
+            f"{self.state['mass_flow']:+07.2f} "
+            f"{self.state['setpoint']:07.2f} "
+            f"{self.state['gas']:<7} "
+            f"{'LCK' if self.button_lock else ''}"
+        )
+    def _create_ramp_response(self) -> str:
+        """Generate a response to setting or getting the ramp config."""
+        config = self.ramp_config
+        return (f"{self.unit}"
+                f" {1 if config['up'] else 0}"
+                f" {1 if config['down'] else 0}"
+                f" {1 if config['zero'] else 0}"
+                f" {1 if config['power'] else 0}")
 
-    async def _set_control_point(self, point: str) -> None:
-        """Set the control point, either 'flow' or 'pressure'."""
-        self.control_point = point
+    def _create_max_ramp_response(self) -> str:
+        """Generate a response to setting or getting the max ramp rate."""
+        return (f"{self.unit}"
+                f" {self.max_ramp:.7f}"
+                f" 7"  # SLPM  # fixme make dynamic
+                f" {MAX_RAMP_TIME_UNITS[self.max_ramp_time_unit]}"
+                f" SLPM/{self.max_ramp_time_unit}")
 
-    async def _get_control_point(self) -> str:
-        """Return the control point, either 'flow' or 'pressure'."""
-        return self.control_point
+    def _handle_write(self, data: bytes) -> None:
+        """Act on writes sent to the mock client, updating internal state and setting self._next_reply if necessary."""
+        msg = data.decode().strip()
+        self.unit = msg[0]
 
-    async def set_flow_rate(self, flowrate: float) -> None:
-        """Set the flowrate setpoint."""
-        await self._set_control_point('flow')
-        await self._set_setpoint(flowrate)
+        msg = msg[1:]  # strip unit
+        if msg == '':  # get dataframe
+            self._next_reply = self._create_dataframe()
+        elif msg == '$$L':  # lock
+            self.button_lock = True
+            self._next_reply = self._create_dataframe()
+        elif msg == '$$U':  # unlock
+            self.button_lock = False
+            self._next_reply = self._create_dataframe()
+        elif 'W122=' in msg:  # set control point
+            cp = int(msg[5:])
+            self.control_point = next(p for p, i in CONTROL_POINTS.items() if cp == i)
+            self._next_reply = f"{self.unit}   122 = {cp}"
+        elif msg == 'R122':  # read control point
+            self._next_reply = f"{self.unit}   122 = {CONTROL_POINTS[self.control_point]}"
+        elif msg == 'LSRC':  # get ramp config
+            self._next_reply = self._create_ramp_response()
+        elif 'LSRC' in msg:  # set ramp config
+            values = msg[5:].split(' ')
+            self.ramp_config = {
+                'up': values[0] == '1',
+                'down': values[1] == '1',
+                'zero': values[2] == '1',
+                'power': values[3] == '1',
+            }
+            self._next_reply = self._create_ramp_response()
+        elif msg == 'SR':  # get max ramp rate
+            self._next_reply = self._create_max_ramp_response()
+        elif 'SR' in msg:  # set max ramp rate
+            values = msg.split()
+            self.max_ramp = float(values[1])
+            unit_time_int = int(values[2])
+            self.max_ramp_time_unit = next(key for key, val in MAX_RAMP_TIME_UNITS.items() if val == unit_time_int)
+            self._next_reply = self._create_max_ramp_response()
+        elif msg[0] == 'S':  # set setpoint
+            self.state['setpoint'] = float(msg[1:])
+            self._next_reply = self._create_dataframe()
+        elif msg[0:6] == '$$W46=':  # set gas via reg46
+            gas = msg[6:]
+            self._next_reply = f"{self.unit}   046 = {gas}"
+            with contextlib.suppress(ValueError):
+                gas = GASES[int(gas)]
+            self.state['gas'] = gas
+        elif msg == '$$R46':  # read gas via reg46
+            gas_index = GASES.index(self.state['gas'])  # type: ignore
+            reg46_value = gas_index & 0x1FF  # encode gas number in low 9 bits
+            self._next_reply = f"{self.unit}   046 = {reg46_value}"
+        elif msg == 'VE':  # get firmware
+            self._next_reply = self.firmware
+        elif msg == '$$PC':
+            self.state['pressure'] = 0
+            self._next_reply = self._create_dataframe()
+        elif msg == '$$V':
+            self.state['volumetric_flow'] = 0
+            self._next_reply = self._create_dataframe()
+        else:
+            raise NotImplementedError(msg)
 
-    async def set_gas(self, gas: int | str) -> None:
-        """Set the gas type."""
-        if isinstance(gas, int):
-            gas = self.gases[gas]
-        self.state['gas'] = gas
-
-    async def set_pressure(self, pressure: float) -> None:
-        """Set the pressure setpoint."""
-        await self._set_control_point('pressure')
-        await self._set_setpoint(pressure)
-
-    async def lock(self) -> None:
-        """Lock the buttons."""
-        self.button_lock = True
-
-    async def unlock(self) -> None:
-        """Unlock the buttons."""
-        self.button_lock = False
-
-    async def get_ramp_config(self) -> dict[str, bool]:
-        """Get ramp config."""
-        return self.ramp_config
-
-    async def set_ramp_config(self, config: dict[str, bool]) -> None:
-        """Set ramp config."""
-        self.ramp_config = config
+    async def _handle_read(self, separator: bytes) -> bytes:
+        """Reply to read requests from the mock client."""
+        reply = self._next_reply.encode() + separator
+        self._next_reply = ''
+        return reply

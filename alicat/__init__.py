@@ -1,11 +1,15 @@
 """Python driver for Alicat mass flow controllers.
 
 Distributed under the GNU General Public License v2
-Copyright (C) 2023 NuMat Technologies
 """
 from typing import Any
 
-from alicat.driver import FlowController, FlowMeter  # noqa
+from alicat.driver import (  # noqa  # type: ignore
+    MAX_RAMP_TIME_UNITS,
+    FlowController,
+    FlowMeter,
+    MaxRampTimeUnit,
+)
 
 
 def command_line(args: Any = None) -> None:

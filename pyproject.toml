@@ -28,17 +28,19 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Human Machine Interfaces",
 ]
+requires-python = ">= 3.9"
 
 [project.optional-dependencies]
 test = [
-  'mypy==1.15.0',
+  'mypy==1.18.2',
   'pytest>=8,<9',
-  'pytest-cov>=6,<7',
+  'pytest-cov>=7,<8',
   'pytest-asyncio>=0.23.5',
   'pytest-xdist>=3,<4',
-  'ruff==0.11.2',
+  'ruff==0.13.2',
   'types-pyserial'
 ]
 
@@ -55,7 +57,7 @@ packages = ["alicat"]
 [tool.ruff]
 extend-exclude = ["venv*"]
 line-length = 120
-target-version = "py310"
+target-version = "py39"
 
 [tool.ruff.lint]
 ignore = [
@@ -67,6 +69,7 @@ ignore = [
 select = [
     "B",   # flake8-bugbear
     "C",   # complexity
+    "COM", # trailing comma rules
     "D",   # docstrings
     "E",   # pycodestyle errors
     "F",   # pyflakes
@@ -85,8 +88,15 @@ convention = "pep257"
 
 [tool.mypy]
 disallow_untyped_defs = true
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
 
 [tool.pytest.ini_options]
 addopts = "--cov=alicat"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"

@@ -5,20 +5,29 @@ from unittest import mock
 import pytest
 
 from alicat import command_line
+from alicat.driver import FlowController
+from alicat.mock import Client
 
-# from alicat.driver import FlowController
-from alicat.mock import FlowController
+ADDRESS = '/dev/ttyUSB0'
 
-ADDRESS = '/dev/tty.usbserial-FTCJ5EK9'
-
+@mock.patch('alicat.driver.SerialClient', Client)
+@mock.patch('alicat.driver.TcpClient', Client)
 
 @pytest.mark.parametrize('unit', ['A', 'B'])
-@mock.patch('alicat.FlowController', FlowController)
 def test_driver_cli(capsys, unit):
     """Confirm the commandline interface works with different unit IDs."""
     command_line([ADDRESS, '--unit', unit])
     captured = capsys.readouterr()
     assert ("mass_flow" in captured.out)
+
+
+@pytest.mark.skip # broken on 3.9
+@pytest.mark.parametrize('cls', [FlowController])  # Fixme: fix FlowMeter
+async def test_is_connected(cls):
+    """Confirm that connection status works."""
+    async with cls(ADDRESS) as device:
+        assert await device.is_connected(ADDRESS)
+        assert not await device.is_connected('bad_address')
 
 
 async def test_flow_setpoint_roundtrip():
@@ -47,6 +56,8 @@ async def test_set_standard_gas_name(gas):
         await device.set_gas(gas)
         result = await device.get()
         assert gas == result['gas']
+        with pytest.raises(ValueError, match='not supported'):
+            await device.set_gas('methylacetylene-propadiene propane')
 
 
 @pytest.mark.parametrize('gas', [('Air', 0), ('H2', 6)])
@@ -56,6 +67,28 @@ async def test_set_standard_gas_number(gas):
         await device.set_gas(gas[1])
         result = await device.get()
         assert gas[0] == result['gas']
+
+
+@pytest.mark.skip
+async def test_create_gas_mix():
+    """Confirm creating custom gas mixes works."""
+    pass
+
+
+async def test_tare_pressure():
+    """Confirm taring the absolute pressure works."""
+    async with FlowController(ADDRESS) as device:
+        await device.tare_pressure()
+        result = await device.get()
+        assert result['pressure'] == 0.0
+
+
+async def test_tare_flow():
+    """Confirm taring the flow works."""
+    async with FlowController(ADDRESS) as device:
+        await device.tare_volumetric()
+        result = await device.get()
+        assert result['volumetric_flow'] == 0.0
 
 
 async def test_get_firmware():
@@ -76,3 +109,22 @@ async def test_ramp_config(config):
         await device.set_ramp_config(config)
         result = await device.get_ramp_config()
         assert config == result
+
+@pytest.mark.parametrize('unit_time', ['ms', 's', 'm', 'h', 'd'])
+async def test_maxramp(unit_time):
+    """Confirm that setting/getting the maximum ramp rate works."""
+    async with FlowController(ADDRESS) as device:
+        max_ramp = round(uniform(0.01, 0.1), 2)
+        await device.set_maxramp(max_ramp, unit_time)
+        result = await device.get_maxramp()
+        assert max_ramp == result['max_ramp']
+        assert result['units'] == f'SLPM/{unit_time}'  # fixme make units dynamic
+
+@pytest.mark.parametrize('control_point',
+    ['mass flow', 'vol flow', 'abs pressure', 'gauge pressure', 'diff pressure'])
+async def test_control_point(control_point):
+    """Confirm changing the control point works."""
+    async with FlowController(ADDRESS) as device:
+        await device._set_control_point(control_point)
+        result = await device._get_control_point()
+        assert control_point == result
