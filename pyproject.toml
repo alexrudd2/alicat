@@ -79,7 +79,7 @@ select = [
     "UP",  # pyupgrade
     "W",   # pycodestyle warnings
     "YTT", # flake8-2020
-    # "ARG", # flake8-unused args
+    "ARG", # flake8-unused args
 ]
 
 [tool.ruff.lint.pydocstyle]

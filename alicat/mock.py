@@ -15,6 +15,7 @@ class Client(RealClient):
 
     def __init__(self, address: str) -> None:
         super().__init__(timeout=0.01)
+        _ = address
         self.writer = MagicMock(spec=asyncio.StreamWriter)
         self.writer.write.side_effect=self._handle_write
         self.reader = AsyncMock(spec=asyncio.StreamReader)
