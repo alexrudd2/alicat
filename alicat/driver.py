@@ -175,7 +175,7 @@ class FlowMeter:
             gas_number = gas
         command = f'{self.unit}$$W46={gas_number}'
         # fixme does this overwrite the upper bits??
-        await self._write_and_read(command)
+        _ = await self._write_and_read(command)
         reg46 = await self._write_and_read(f'{self.unit}$$R46')
         if not reg46:
             raise OSError("Cannot set gas.")
@@ -235,16 +235,16 @@ class FlowMeter:
     async def lock(self) -> None:
         """Lock the buttons."""
         command = f'{self.unit}$$L'
-        await self._write_and_read(command)
+        _ = await self._write_and_read(command)
 
     async def unlock(self) -> None:
         """Unlock the buttons."""
         command = f'{self.unit}$$U'
-        await self._write_and_read(command)
+        _ = await self._write_and_read(command)
 
     async def is_locked(self) -> bool:
         """Return whether the buttons are locked."""
-        await self.get()
+        _ = await self.get()
         return self.button_lock
 
     async def tare_pressure(self) -> None:
@@ -264,7 +264,7 @@ class FlowMeter:
     async def reset_totalizer(self) -> None:
         """Reset the totalizer."""
         command = f'{self.unit}T'
-        await self._write_and_read(command)
+        _ = await self._write_and_read(command)
 
     async def get_firmware(self) -> str:
         """Get the device firmware version."""
@@ -445,12 +445,12 @@ class FlowController(FlowMeter):
         For a dual valve pressure controller, close both valves.
         """
         command = f'{self.unit}$$H'
-        await self._write_and_read(command)
+        _ = await self._write_and_read(command)
 
     async def cancel_hold(self) -> None:
         """Cancel valve hold."""
         command = f'{self.unit}$$C'
-        await self._write_and_read(command)
+        _ = await self._write_and_read(command)
 
     async def get_pid(self) -> dict[str, Any]:
         """Read the current PID values on the controller.
@@ -499,16 +499,16 @@ class FlowController(FlowMeter):
                 raise ValueError(f'Loop type must be {options[0]} or {options[1]}.')
             loop_num=options.index(loop_type) + 1
             command = f'{self.unit}$$w85={loop_num}'
-            await self._write_and_read(command)
+            _ = await self._write_and_read(command)
         if p is not None:
             command = f'{self.unit}$$w21={p}'
-            await self._write_and_read(command)
+            _ = await self._write_and_read(command)
         if i is not None:
             command = f'{self.unit}$$w23={i}'
-            await self._write_and_read(command)
+            _ = await self._write_and_read(command)
         if d is not None:
             command = f'{self.unit}$$w22={d}'
-            await self._write_and_read(command)
+            _ = await self._write_and_read(command)
 
     async def _set_setpoint(self, setpoint: float) -> None:
         """Set the target setpoint.
