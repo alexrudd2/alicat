@@ -21,3 +21,10 @@ repos:
         args: ["--verbose"]
       - id: check-renovate
         args: ["--verbose"]
+  - repo: local
+    hooks:
+      - id: zuban-type-check
+        name: Zuban type check
+        entry: uv run zuban check
+        language: python
+        types: [python]
