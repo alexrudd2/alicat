@@ -167,11 +167,9 @@ class FlowMeter:
             del values[-1]
         if unit != self.unit:
             raise ValueError("Flow controller unit ID mismatch.")
+        # Strip lock status flag if present (not part of data fields)
         if values[-1].upper() == "LCK":
-            self.button_lock = True
             del values[-1]
-        else:
-            self.button_lock = False
         if len(values) == 5 and len(self.keys) == 6:
             del self.keys[-2]
         elif len(values) == 7 and len(self.keys) == 6:
@@ -265,17 +263,22 @@ class FlowMeter:
     async def lock(self) -> None:
         """Lock the buttons."""
         command = f"{self.unit}$$L"
-        _ = await self._write_and_read(command)
+        response = await self._write_and_read(command)
+        if not response or 'LCK' not in response.upper():
+            raise OSError("Failed to lock device buttons.")
 
     async def unlock(self) -> None:
         """Unlock the buttons."""
         command = f"{self.unit}$$U"
-        _ = await self._write_and_read(command)
+        response = await self._write_and_read(command)
+        if not response or 'LCK' in response.upper():
+            raise OSError("Failed to unlock device buttons.")
 
     async def is_locked(self) -> bool:
         """Return whether the buttons are locked."""
-        _ = await self.get()
-        return self.button_lock
+        command = f"{self.unit}"
+        response = await self._write_and_read(command)
+        return response is not None and 'LCK' in response.upper()
 
     async def tare_pressure(self) -> None:
         """Tare the pressure."""
