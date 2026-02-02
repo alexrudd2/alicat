@@ -19,6 +19,25 @@ GASES = ['Air', 'Ar', 'CH4', 'CO', 'CO2', 'C2H6', 'H2', 'He',
          'C-8', 'C-2', 'C-75', 'A-75', 'A-25', 'A1025', 'Star29',
          'P-5']
 
+# Status flags that can appear at the end of device responses.
+# Reference: Alicat Serial Primer, page 8 (https://documents.alicat.com/Alicat-Serial-Primer.pdf)
+STATUS_FLAGS = frozenset({
+    'EXH',  # exhaust valve override enabled
+    'HLD',  # valve hold enabled
+    'LCK',  # display buttons locked
+    'MOV',  # mass flow overage
+    'OPL',  # overpressure limit enabled
+    'OVR',  # totalizer rollover
+    'POV',  # pressure overage
+    'TMF',  # totalizer missed flow
+    'TOV',  # temperature overage
+    'VOV',  # volumetric flow overage
+})
+# Error flags that indicate hardware failures and should raise exceptions immediately
+ERROR_FLAGS = frozenset({
+    'ADC',  # internal communication error
+})
+
 MaxRampTimeUnit = Literal['ms', 's', 'm', 'h', 'd']
 MAX_RAMP_TIME_UNITS: dict[MaxRampTimeUnit, int] = {
     'ms': 3,
@@ -63,6 +82,7 @@ class AlicatDevice:
         self.unit = unit
         self.open = True
         self.firmware: str | None = None
+        self.keys: list[str]  # set by subclasses
 
     async def __aenter__(self: _T) -> _T:
         """Provide async enter to context manager."""
@@ -89,6 +109,37 @@ class AlicatDevice:
         self._test_controller_open()
         return await self.hw.write_and_read(command)
 
+    def _parse_response(self, line: str) -> tuple[list[str], set[str]]:
+        """Parse a device response, extracting data values and status flags.
+
+        Args:
+            line: The raw response line from the device
+
+        Returns:
+            A tuple of (values, flags) where values is the list of data fields
+            (excluding unit ID and flags) and flags is a set of status flags found.
+
+        Raises:
+            OSError: If ADC (internal communication error) flag is present
+            ValueError: If the unit ID in the response doesn't match
+        """
+        spl = line.split()
+        unit = spl[0]
+        values = spl[1:]
+
+        if unit != self.unit:
+            raise ValueError("Device unit ID mismatch.")
+
+        # Extract flags from the end of the response
+        flags: set[str] = set()
+        while values and values[-1].upper() in (STATUS_FLAGS | ERROR_FLAGS):
+            flag = values.pop().upper()
+            if flag in ERROR_FLAGS:
+                raise OSError(f"Device error: {flag}")
+            flags.add(flag)
+
+        return values, flags
+
     async def lock(self) -> None:
         """Lock the buttons."""
         command = f'{self.unit}$$L'
@@ -110,8 +161,33 @@ class AlicatDevice:
         return response is not None and 'LCK' in response.upper()
 
     async def get(self) -> dict[str, Any]:
-        """Get the current state of the device. Override in subclasses."""
-        raise NotImplementedError("Subclasses must implement get()")
+        """Get the current state of the device.
+
+        Polls the device and returns a dictionary of values based on self.keys,
+        which must be set by subclasses.
+
+        Returns:
+            The state of the device, as a dictionary. Includes a 'status'
+            key containing a sorted list of any status flags present in the response.
+        """
+        command = f'{self.unit}'
+        line = await self._write_and_read(command)
+        if not line:
+            raise OSError("Could not read values")
+
+        values, flags = self._parse_response(line)
+
+        if len(values) != len(self.keys):
+            raise ValueError(
+                f"Response field count mismatch: got {len(values)} values "
+                f"but expected {len(self.keys)} (keys: {self.keys}). "
+                f"Check device type and totalizer setting.",
+            )
+
+        result: dict[str, Any] = {k: (float(v) if _is_float(v) else v)
+                                  for k, v in zip(self.keys, values, strict=True)}
+        result['status'] = sorted(flags)
+        return result
 
     async def tare_pressure(self) -> None:
         """Tare the pressure."""
@@ -210,48 +286,6 @@ class FlowMeter(AlicatDevice):
         self.keys = ['pressure', 'temperature', 'volumetric_flow', 'mass_flow', 'gas']
         if totalizer:
             self.keys.insert(4, 'total flow')
-
-    async def get(self) -> dict[str, Any]:
-        """Get the current state of the flow meter.
-
-        From the Alicat mass flow controller documentation, this data is:
-         * Pressure (normally in psia)
-         * Temperature (normally in C)
-         * Volumetric flow (in units specified at time of order)
-         * Mass flow (in units specified at time of order)
-         * Total flow (only on models with the optional totalizer function)
-         * Currently selected gas
-
-        Returns:
-            The state of the flow meter, as a dictionary.
-
-        """
-        command = f'{self.unit}'
-        line = await self._write_and_read(command)
-        if not line:
-            raise OSError("Could not read values")
-        spl = line.split()
-        unit, values = spl[0], spl[1:]
-
-        # Over range errors for mass, volume, pressure, and temperature
-        # Explicitly silenced because I find it redundant.
-        while values[-1].upper() in ['MOV', 'VOV', 'POV', 'TOV']:
-            del values[-1]
-        if unit != self.unit:
-            raise ValueError("Flow controller unit ID mismatch.")
-        # Strip lock status flag if present (not part of data fields)
-        if values[-1].upper() == 'LCK':
-            del values[-1]
-
-        if len(values) != len(self.keys):
-            raise ValueError(
-                f"Response field count mismatch: got {len(values)} values "
-                f"but expected {len(self.keys)} (keys: {self.keys}). "
-                f"Check device type and totalizer setting.",
-            )
-
-        return {k: (float(v) if _is_float(v) else v)
-                for k, v in zip(self.keys, values, strict=True)}
 
     async def set_gas(self, gas: str | int) -> None:
         """Set the gas type.
@@ -567,18 +601,8 @@ class FlowController(FlowMeter, ControllerMixin):
     async def get(self) -> dict[str, Any]:
         """Get the current state of the flow controller.
 
-        From the Alicat mass flow controller documentation, this data is:
-         * Pressure (normally in psia)
-         * Temperature (normally in C)
-         * Volumetric flow (in units specified at time of order)
-         * Mass flow (in units specified at time of order)
-         * Flow setpoint (in units of control point)
-         * Flow control point (e.g. 'mass flow' or 'abs pressure')
-         * Total flow (only on models with the optional totalizer function)
-         * Currently selected gas
-
-        Returns:
-            The state of the flow controller, as a dictionary.
+        Overrides base to add 'control_point', which is not part of the
+        device's data frame but is cached by the driver from register 122.
         """
         state = await super().get()
         state['control_point'] = self.control_point
