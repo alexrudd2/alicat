@@ -8,9 +8,11 @@ Copyright (C) 2023 NuMat Technologies
 from __future__ import annotations
 
 import asyncio
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar, Literal, TypeVar
 
 from .util import Client, SerialClient, TcpClient, _is_float
+
+_T = TypeVar('_T', bound='AlicatDevice')
 
 GASES = [
     "Air",
@@ -46,14 +48,13 @@ GASES = [
 ]
 
 
-class FlowMeter:
-    """Python driver for Alicat Flow Meters.
-
-    [Reference](http://www.alicat.com/
-    products/mass-flow-meters-and-controllers/mass-flow-meters/).
+class AlicatDevice:
+    """Base class for all Alicat devices.
 
     This communicates with the flow meter over a USB or RS-232/RS-485
     connection using pyserial, or an Ethernet <-> serial converter.
+    Provides universal commands shared by all device types (lock, unlock,
+    firmware, etc.).
     """
 
     # mapping of port names to a tuple of Client objects and their refcounts
@@ -67,14 +68,14 @@ class FlowMeter:
             unit: The Alicat-specified unit ID, A-Z. Default 'A'.
         """
         if address.startswith("/dev") or address.startswith("COM"):  # serial
-            if address in FlowMeter.open_ports:
+            if address in AlicatDevice.open_ports:
                 # Reuse existing connection
-                self.hw, refcount = FlowMeter.open_ports[address]
-                FlowMeter.open_ports[address] = (self.hw, refcount + 1)
+                self.hw, refcount = AlicatDevice.open_ports[address]
+                AlicatDevice.open_ports[address] = (self.hw, refcount + 1)
             else:
                 # Open a new connection and store it
                 self.hw: Client = SerialClient(address=address, **kwargs)  # type: ignore[no-redef]
-                FlowMeter.open_ports[address] = (self.hw, 1)
+                AlicatDevice.open_ports[address] = (self.hw, 1)
         else:
             self.hw = TcpClient(address=address, **kwargs)
 
@@ -83,7 +84,7 @@ class FlowMeter:
         self.open = True
         self.firmware: str | None = None
 
-    async def __aenter__(self) -> FlowMeter:
+    async def __aenter__(self: _T) -> _T:
         """Provide async enter to context manager."""
         return self
 
@@ -91,6 +92,111 @@ class FlowMeter:
         """Provide async exit to context manager."""
         await self.close()
         return
+
+    def _test_controller_open(self) -> None:
+        """Raise an IOError if the device has been closed.
+
+        Does nothing if the device is open and good for read/write
+        otherwise raises an IOError. This only checks if the device
+        has been closed by the close method.
+        """
+        if not self.open:
+            raise OSError(f"The device with unit ID {self.unit} and "
+                          f"port {self.hw.address} is not open")
+
+    async def _write_and_read(self, command: str) -> str | None:
+        """Wrap the communicator request, to call _test_controller_open() before any request."""
+        self._test_controller_open()
+        return await self.hw.write_and_read(command)
+
+    async def lock(self) -> None:
+        """Lock the buttons."""
+        command = f"{self.unit}$$L"
+        response = await self._write_and_read(command)
+        if not response or 'LCK' not in response.upper():
+            raise OSError("Failed to lock device buttons.")
+
+    async def unlock(self) -> None:
+        """Unlock the buttons."""
+        command = f"{self.unit}$$U"
+        response = await self._write_and_read(command)
+        if not response or 'LCK' in response.upper():
+            raise OSError("Failed to unlock device buttons.")
+
+    async def is_locked(self) -> bool:
+        """Return whether the buttons are locked."""
+        command = f"{self.unit}"
+        response = await self._write_and_read(command)
+        return response is not None and 'LCK' in response.upper()
+
+    async def get(self) -> dict[str, Any]:
+        """Get the current state of the device. Override in subclasses."""
+        raise NotImplementedError("Subclasses must implement get()")
+
+    async def tare_pressure(self) -> None:
+        """Tare the pressure."""
+        command = f'{self.unit}$$PC'
+        line = await self._write_and_read(command)
+        if line == '?':
+            raise OSError("Unable to tare pressure.")
+
+    async def get_firmware(self) -> str:
+        """Get the device firmware version."""
+        if self.firmware is None:
+            command = f'{self.unit}VE'
+            self.firmware = await self._write_and_read(command)
+        if not self.firmware:
+            raise OSError("Unable to get firmware.")
+        return self.firmware
+
+    async def flush(self) -> None:
+        """Read all available information. Use to clear queue."""
+        self._test_controller_open()
+        await self.hw.clear()
+
+    async def close(self) -> None:
+        """Close the device. Call this on program termination.
+
+        Also close the serial port if no other device object has
+        a reference to the port.
+        """
+        if not self.open:
+            return
+        port = self.hw.address
+        if port in AlicatDevice.open_ports:
+            connection, refcount = AlicatDevice.open_ports[port]
+            if refcount > 1:
+                AlicatDevice.open_ports[port] = (connection, refcount - 1)
+            else:
+                await connection.close()  # Close the port if no other instance uses it
+                del AlicatDevice.open_ports[port]
+        self.open = False
+
+
+class FlowMeter(AlicatDevice):
+    """Python driver for Alicat Flow Meters.
+
+    [Reference](http://www.alicat.com/
+    products/mass-flow-meters-and-controllers/mass-flow-meters/).
+
+    This communicates with the flow meter over a USB or RS-232/RS-485
+    connection using pyserial, or an Ethernet <-> serial converter.
+    """
+
+    # Keep class-level open_ports for backwards compatibility
+    # (some code may reference FlowMeter.open_ports directly)
+    open_ports: ClassVar[dict[str, tuple[Client, int]]] = AlicatDevice.open_ports
+
+    def __init__(self, address: str = '/dev/ttyUSB0', unit: str = 'A', **kwargs: Any) -> None:
+        """Connect this driver with the appropriate USB / serial port.
+
+        Args:
+            address: The serial port or TCP address:port. Default '/dev/ttyUSB0'.
+            unit: The Alicat-specified unit ID, A-Z. Default 'A'.
+        """
+        super().__init__(address, unit, **kwargs)
+        self.keys = ['pressure', 'temperature', 'volumetric_flow', 'mass_flow',
+                     'setpoint', 'gas']
 
     @classmethod
     async def is_connected(cls, port: str, unit: str = "A") -> bool:
@@ -122,21 +228,6 @@ class FlowMeter:
             pass
         return is_device
 
-    def _test_controller_open(self) -> None:
-        """Raise an IOError if the FlowMeter has been closed.
-
-        Does nothing if the meter is open and good for read/write
-        otherwise raises an IOError. This only checks if the meter
-        has been closed by the FlowMeter.close method.
-        """
-        if not self.open:
-            raise OSError(f"The FlowMeter with unit ID {self.unit} and port {self.hw.address} is not open")
-
-    async def _write_and_read(self, command: str) -> str | None:
-        """Wrap the communicator request, to call _test_controller_open() before any request."""
-        self._test_controller_open()
-        return await self.hw.write_and_read(command)
-
     async def get(self) -> dict[str, Any]:
         """Get the current state of the flow controller.
 
@@ -148,8 +239,6 @@ class FlowMeter:
          * Total flow (only on models with the optional totalizer function)
          * Currently selected gas
 
-        Args:
-            retries: Number of times to re-attempt reading. Default 2.
         Returns:
             The state of the flow controller, as a dictionary.
 
@@ -179,7 +268,8 @@ class FlowMeter:
         elif len(values) == 4 and len(self.keys) == 6:  # LCR (liquid)
             del self.keys[-1]  # gas
             del self.keys[2]  # volumetric flow
-        return {k: (float(v) if _is_float(v) else v) for k, v in zip(self.keys, values, strict=True)}
+        return {k: (float(v) if _is_float(v) else v)
+                for k, v in zip(self.keys, values, strict=True)}
 
     async def set_gas(self, gas: str | int) -> None:
         """Set the gas type.
@@ -260,33 +350,6 @@ class FlowMeter:
         if line == "?":
             raise OSError("Unable to delete mix.")
 
-    async def lock(self) -> None:
-        """Lock the buttons."""
-        command = f"{self.unit}$$L"
-        response = await self._write_and_read(command)
-        if not response or 'LCK' not in response.upper():
-            raise OSError("Failed to lock device buttons.")
-
-    async def unlock(self) -> None:
-        """Unlock the buttons."""
-        command = f"{self.unit}$$U"
-        response = await self._write_and_read(command)
-        if not response or 'LCK' in response.upper():
-            raise OSError("Failed to unlock device buttons.")
-
-    async def is_locked(self) -> bool:
-        """Return whether the buttons are locked."""
-        command = f"{self.unit}"
-        response = await self._write_and_read(command)
-        return response is not None and 'LCK' in response.upper()
-
-    async def tare_pressure(self) -> None:
-        """Tare the pressure."""
-        command = f"{self.unit}$$PC"
-        line = await self._write_and_read(command)
-        if line == "?":
-            raise OSError("Unable to tare pressure.")
-
     async def tare_volumetric(self) -> None:
         """Tare volumetric flow."""
         command = f"{self.unit}$$V"
@@ -298,38 +361,6 @@ class FlowMeter:
         """Reset the totalizer."""
         command = f"{self.unit}T"
         _ = await self._write_and_read(command)
-
-    async def get_firmware(self) -> str:
-        """Get the device firmware version."""
-        if self.firmware is None:
-            command = f"{self.unit}VE"
-            self.firmware = await self._write_and_read(command)
-        if self.firmware is None:
-            raise OSError("Unable to get firmware.")
-        return self.firmware
-
-    async def flush(self) -> None:
-        """Read all available information. Use to clear queue."""
-        self._test_controller_open()
-        await self.hw.clear()
-
-    async def close(self) -> None:
-        """Close the flow meter. Call this on program termination.
-
-        Also close the serial port if no other FlowMeter object has
-        a reference to the port.
-        """
-        if not self.open:
-            return
-        port = self.hw.address
-        if port in FlowMeter.open_ports:
-            connection, refcount = FlowMeter.open_ports[port]
-            if refcount > 1:
-                FlowMeter.open_ports[port] = (connection, refcount - 1)
-            else:
-                await connection.close()  # Close the port if no other instance uses it
-                del FlowMeter.open_ports[port]
-        self.open = False
 
 
 CONTROL_POINTS = {
@@ -376,10 +407,6 @@ class FlowController(FlowMeter):
             self.control_point = await self._get_control_point()
 
         self._init_task = asyncio.create_task(_init_control_point())
-
-    async def __aenter__(self) -> FlowController:
-        """Provide async enter to context manager."""
-        return self
 
     async def _write_and_read(self, command: str) -> str | None:
         """Wrap the communicator request.
