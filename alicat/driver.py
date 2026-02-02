@@ -148,6 +148,35 @@ class AlicatDevice:
                 del AlicatDevice.open_ports[port]
         self.open = False
 
+    @classmethod
+    async def is_connected(cls, port: str, unit: str = 'A',
+                           totalizer: bool = False) -> bool:
+        """Check whether the specified port has a device of this type.
+
+        Args:
+            port: The serial port or TCP address:port.
+            unit: The Alicat-specified unit ID, A-Z. Default 'A'.
+            totalizer: Whether the device has totalizer enabled. Default False.
+
+        Returns:
+            True if a device responds with the expected number of fields.
+
+        Note: This method can produce false positives. A FlowMeter with totalizer
+        and a FlowController without totalizer both return 6 fields, so this
+        method cannot distinguish between them based on field count alone.
+        """
+        if cls is AlicatDevice:
+            raise NotImplementedError("Call is_connected on a subclass, not AlicatDevice")
+        try:
+            device = cls(port, unit, totalizer=totalizer)
+            try:
+                await device.get()
+                return True
+            finally:
+                await device.close()
+        except Exception:
+            return False
+
 
 class FlowMeter(AlicatDevice):
     """Python driver for Alicat Flow Meters.
@@ -163,49 +192,23 @@ class FlowMeter(AlicatDevice):
     # (some code may reference FlowMeter.open_ports directly)
     open_ports: ClassVar[dict[str, tuple[Client, int]]] = AlicatDevice.open_ports
 
-    def __init__(self, address: str = '/dev/ttyUSB0', unit: str = 'A', **kwargs: Any) -> None:
+    def __init__(self, address: str = '/dev/ttyUSB0', unit: str = 'A',
+                 totalizer: bool = False, **kwargs: Any) -> None:
         """Connect this driver with the appropriate USB / serial port.
 
         Args:
             address: The serial port or TCP address:port. Default '/dev/ttyUSB0'.
             unit: The Alicat-specified unit ID, A-Z. Default 'A'.
+            totalizer: Whether the device has totalizer enabled. Default False.
         """
         super().__init__(address, unit, **kwargs)
-        self.keys = ['pressure', 'temperature', 'volumetric_flow', 'mass_flow',
-                     'setpoint', 'gas']
-
-    @classmethod
-    async def is_connected(cls, port: str, unit: str = 'A') -> bool:
-        """Return True if the specified port is connected to this device.
-
-        This class can be used to automatically identify ports with connected
-        Alicats. Iterate through all connected interfaces, and use this to
-        test. Ports that come back True should be valid addresses.
-
-        Note that this distinguishes between `FlowController` and `FlowMeter`.
-        """
-        is_device = False
-        try:
-            device = cls(port, unit)
-            try:
-                c = await device.get()
-                if cls.__name__ == 'FlowMeter':
-                    assert c
-                    assert 'setpoint' not in device.keys
-                elif cls.__name__ == 'FlowController':
-                    assert c
-                    assert 'setpoint' in device.keys
-                else:
-                    raise NotImplementedError('Must be meter or controller.')
-                is_device = True
-            finally:
-                await device.close()
-        except Exception:
-            pass
-        return is_device
+        # FlowMeter: no setpoint field (meter only)
+        self.keys = ['pressure', 'temperature', 'volumetric_flow', 'mass_flow', 'gas']
+        if totalizer:
+            self.keys.insert(4, 'total flow')
 
     async def get(self) -> dict[str, Any]:
-        """Get the current state of the flow controller.
+        """Get the current state of the flow meter.
 
         From the Alicat mass flow controller documentation, this data is:
          * Pressure (normally in psia)
@@ -216,7 +219,7 @@ class FlowMeter(AlicatDevice):
          * Currently selected gas
 
         Returns:
-            The state of the flow controller, as a dictionary.
+            The state of the flow meter, as a dictionary.
 
         """
         command = f'{self.unit}'
@@ -237,15 +240,14 @@ class FlowMeter(AlicatDevice):
             del values[-1]
         else:
             self.button_lock = False
-        if len(values) == 5 and len(self.keys) == 6:
-            del self.keys[-2]
-        elif len(values) == 7 and len(self.keys) == 6:
-            self.keys.insert(5, 'total flow')
-        elif len(values) == 2 and len(self.keys) == 6:
-            self.keys.insert(1, 'setpoint')
-        elif len(values) == 4 and len(self.keys) == 6:  # LCR (liquid)
-            del self.keys[-1]  # gas
-            del self.keys[2]  # volumetric flow
+
+        if len(values) != len(self.keys):
+            raise ValueError(
+                f"Response field count mismatch: got {len(values)} values "
+                f"but expected {len(self.keys)} (keys: {self.keys}). "
+                f"Check device type and totalizer setting.",
+            )
+
         return {k: (float(v) if _is_float(v) else v)
                 for k, v in zip(self.keys, values, strict=True)}
 
@@ -346,13 +348,38 @@ CONTROL_POINTS = {
 
 
 class ControllerMixin:
-    """Mixin providing controller functionality (PID, hold, ramp settings)."""
+    """Mixin providing controller functionality (PID, hold, ramp, setpoint)."""
 
     unit: str  # provided by AlicatDevice
+    keys: list[str]  # provided by FlowMeter/subclasses
 
     async def _write_and_read(self, command: str) -> str | None:
         """Write command and return response. Provided by AlicatDevice."""
         raise NotImplementedError
+
+    async def _set_setpoint(self, setpoint: float) -> None:
+        """Set the target setpoint.
+
+        Called by `set_flow_rate` and `set_pressure`, which both use the same
+        command once the appropriate register is set.
+        """
+        command = f'{self.unit}S{setpoint:.2f}'
+        line = await self._write_and_read(command)
+        if not line:
+            raise OSError("Could not set setpoint.")
+        # Response format: {unit_id} {fields...} where fields follow self.keys
+        # Add 1 to account for unit_id prefix in response
+        setpoint_index = self.keys.index('setpoint') + 1
+        current = float(line.split()[setpoint_index])
+        if abs(current - setpoint) > 0.01:
+            # possibly the setpoint is being ramped
+            command = f'{self.unit}LS'
+            line = await self._write_and_read(command)
+            if not line:
+                raise OSError("Could not set setpoint.")
+            commanded = float(line.split()[2])
+            if abs(commanded - setpoint) > 0.01:
+                raise OSError("Could not set setpoint.")
 
     async def hold(self) -> None:
         """Override command to issue a valve hold (firmware 5v07).
@@ -511,15 +538,20 @@ class FlowController(FlowMeter, ControllerMixin):
     that the "Input" option is set to "Serial".
     """
 
-    def __init__(self, address: str='/dev/ttyUSB0', unit: str='A', **kwargs: Any) -> None:
+    def __init__(self, address: str = '/dev/ttyUSB0', unit: str = 'A',
+                 totalizer: bool = False, **kwargs: Any) -> None:
         """Connect this driver with the appropriate USB / serial port.
 
         Args:
             address: The serial port or TCP address:port. Default '/dev/ttyUSB0'.
             unit: The Alicat-specified unit ID, A-Z. Default 'A'.
+            totalizer: Whether the device has totalizer enabled. Default False.
         """
-        FlowMeter.__init__(self, address, unit, **kwargs)
+        FlowMeter.__init__(self, address, unit, totalizer=totalizer, **kwargs)
+        # FlowController: has setpoint field (insert before gas)
+        self.keys.insert(self.keys.index('gas'), 'setpoint')
         self.control_point: str | None = None
+
         async def _init_control_point() -> None:
             self.control_point = await self._get_control_point()
         self._init_task = asyncio.create_task(_init_control_point())
@@ -527,13 +559,11 @@ class FlowController(FlowMeter, ControllerMixin):
     async def _write_and_read(self, command: str) -> str | None:
         """Wrap the communicator request.
 
-        (1) Ensure _init_task is called once before the first request
-        (2) Call _test_controller_open() before any request
+        Ensure _init_task completes before any command except the init command itself.
         """
         if 'R122' not in command:
             await self._init_task
-        self._test_controller_open()
-        return await self.hw.write_and_read(command)
+        return await super()._write_and_read(command)
 
     async def get(self) -> dict[str, Any]:
         """Get the current state of the flow controller.
@@ -619,33 +649,6 @@ class FlowController(FlowMeter, ControllerMixin):
         line = await self._write_and_read(command)
         if line == '?':
             raise OSError("Unable to set totalizer batch volume. Check if volume is out of range for device.")
-
-    async def _set_setpoint(self, setpoint: float) -> None:
-        """Set the target setpoint.
-
-        Called by `set_flow_rate` and `set_pressure`, which both use the same
-        command once the appropriate register is set.
-        """
-        command = f'{self.unit}S{setpoint:.2f}'
-        line = await self._write_and_read(command)
-        if not line:
-            raise OSError("Could not set setpoint.")
-        try:
-            current = float(line.split()[5])
-        except IndexError:
-            current = None
-        if current is not None and abs(current - setpoint) > 0.01:
-            # possibly the setpoint is being ramped
-            command = f'{self.unit}LS'
-            line = await self._write_and_read(command)
-            if not line:
-                raise OSError("Could not set setpoint.")
-            try:
-                commanded = float(line.split()[2])
-            except IndexError:
-                raise OSError("Could not set setpoint.") from None
-            if commanded is not None and abs(commanded - setpoint) > 0.01:
-                raise OSError("Could not set setpoint.")
 
     async def _get_control_point(self) -> str:
         """Get the control point, and save to internal variable."""
