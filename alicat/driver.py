@@ -19,6 +19,16 @@ GASES = ['Air', 'Ar', 'CH4', 'CO', 'CO2', 'C2H6', 'H2', 'He',
          'C-8', 'C-2', 'C-75', 'A-75', 'A-25', 'A1025', 'Star29',
          'P-5']
 
+MaxRampTimeUnit = Literal['ms', 's', 'm', 'h', 'd']
+MAX_RAMP_TIME_UNITS: dict[MaxRampTimeUnit, int] = {
+    'ms': 3,
+    's': 4,
+    'm': 5,
+    'h': 6,
+    'd': 7,
+}
+
+
 class AlicatDevice:
     """Base class for all Alicat devices.
 
@@ -333,16 +343,162 @@ CONTROL_POINTS = {
     'mass flow': 37, 'vol flow': 36,
     'abs pressure': 34, 'gauge pressure': 38, 'diff pressure': 39,
 }  # fixme: add remaining control points
-MaxRampTimeUnit = Literal['ms', 's', 'm', 'h', 'd']
-MAX_RAMP_TIME_UNITS: dict[MaxRampTimeUnit, int] = {
-    'ms': 3,
-    's': 4,
-    'm': 5,
-    'h': 6,
-    'd': 7,
-}
 
-class FlowController(FlowMeter):
+
+class ControllerMixin:
+    """Mixin providing controller functionality (PID, hold, ramp settings)."""
+
+    unit: str  # provided by AlicatDevice
+
+    async def _write_and_read(self, command: str) -> str | None:
+        """Write command and return response. Provided by AlicatDevice."""
+        raise NotImplementedError
+
+    async def hold(self) -> None:
+        """Override command to issue a valve hold (firmware 5v07).
+
+        For a single valve controller, hold the valve at the present value.
+        For a dual valve flow controller, hold the valve at the present value.
+        For a dual valve pressure controller, close both valves.
+        """
+        command = f'{self.unit}$$H'
+        _ = await self._write_and_read(command)
+
+    async def cancel_hold(self) -> None:
+        """Cancel valve hold."""
+        command = f'{self.unit}$$C'
+        _ = await self._write_and_read(command)
+
+    async def get_pid(self) -> dict[str, Any]:
+        """Read the current PID values on the controller.
+
+        Values include the loop type, P value, D value, and I value.
+        Values returned as a dictionary.
+        """
+        pid_keys = ['loop_type', 'P', 'D', 'I']
+
+        command = f'{self.unit}$$r85'
+        read_loop_type = await self._write_and_read(command)
+        if not read_loop_type:
+            raise OSError("Could not get PID values.")
+        spl = read_loop_type.split()
+
+        loopnum = int(spl[3])
+        loop_type = ['PD/PDF', 'PD/PDF', 'PD2I'][loopnum]
+        pid_values: list[Any] = [loop_type]
+        for register in range(21, 24):
+            value = await self._write_and_read(f'{self.unit}$$r{register}')
+            if not value:
+                raise OSError(f"Could not read register {register}")
+            value_spl = value.split()
+            pid_values.append(value_spl[3])
+
+        return {k: (v if k == pid_keys[-1] else str(v))
+                for k, v in zip(pid_keys, pid_values, strict=True)}
+
+    async def set_pid(self, p: int | None = None,
+                      i: int | None = None,
+                      d: int | None = None,
+                      loop_type: str | None = None) -> None:
+        """Set specified PID parameters.
+
+        Args:
+            p: Proportional gain
+            i: Integral gain. Only used in PD2I loop type.
+            d: Derivative gain
+            loop_type: Algorithm option, either 'PD/PDF' or 'PD2I'
+
+        This communication works by writing Alicat registers directly.
+        """
+        if loop_type is not None:
+            options = ['PD/PDF', 'PD2I']
+            if loop_type not in options:
+                raise ValueError(f'Loop type must be {options[0]} or {options[1]}.')
+            loop_num = options.index(loop_type) + 1
+            command = f'{self.unit}$$w85={loop_num}'
+            _ = await self._write_and_read(command)
+        if p is not None:
+            command = f'{self.unit}$$w21={p}'
+            _ = await self._write_and_read(command)
+        if i is not None:
+            command = f'{self.unit}$$w23={i}'
+            _ = await self._write_and_read(command)
+        if d is not None:
+            command = f'{self.unit}$$w22={d}'
+            _ = await self._write_and_read(command)
+
+    async def set_ramp_config(self, config: dict[str, bool]) -> None:
+        """Configure the setpoint ramp settings (firmware 10v05).
+
+        Args:
+            config: Dictionary with boolean keys:
+                `up`: whether to ramp when increasing setpoint
+                `down`: whether to ramp when decreasing setpoint
+                `zero`: whether to ramp when establishing zero setpoint
+                `power`: whether to ramp when using power-up setpoint
+        """
+        command = (f"{self.unit}LSRC"
+                   f" {1 if config['up'] else 0}"
+                   f" {1 if config['down'] else 0}"
+                   f" {1 if config['zero'] else 0}"
+                   f" {1 if config['power'] else 0}")
+        line = await self._write_and_read(command)
+        if not line or self.unit not in line:
+            raise OSError("Could not set ramp config.")
+
+    async def get_ramp_config(self) -> dict[str, bool]:
+        """Get the setpoint ramp settings (firmware 10v05).
+
+        Returns:
+            Dictionary with boolean keys: up, down, zero, power
+        """
+        command = f"{self.unit}LSRC"
+        line = await self._write_and_read(command)
+        if not line or self.unit not in line:
+            raise OSError("Could not read ramp config.")
+        values = line[2:].split(' ')
+        if len(values) != 4:
+            raise OSError("Could not read ramp config.")
+        return {
+            'up': values[0] == '1',
+            'down': values[1] == '1',
+            'zero': values[2] == '1',
+            'power': values[3] == '1',
+        }
+
+    async def set_maxramp(self, max_ramp: float,
+                          unit_time: MaxRampTimeUnit) -> None:
+        """Set the maximum ramp rate (firmware 7v11).
+
+        Args:
+            max_ramp: The maximum ramp rate
+            unit_time: The time unit ('ms', 's', 'm', 'h', 'd')
+        """
+        command = f"{self.unit}SR {max_ramp:.2f} {MAX_RAMP_TIME_UNITS[unit_time]}"
+        line = await self._write_and_read(command)
+        if not line or self.unit not in line:
+            raise OSError("Could not set max ramp.")
+
+    async def get_maxramp(self) -> dict[str, float | str]:
+        """Get the maximum ramp rate (firmware 7v11).
+
+        Returns:
+            Dictionary with 'max_ramp' (float) and 'units' (str)
+        """
+        command = f"{self.unit}SR"
+        line = await self._write_and_read(command)
+        if not line or self.unit not in line:
+            raise OSError("Could not read max ramp.")
+        values = line.split(' ')
+        if len(values) != 5:
+            raise OSError("Could not read max ramp.")
+        return {
+            'max_ramp': float(values[1]),
+            'units': str(values[4]),
+        }
+
+
+class FlowController(FlowMeter, ControllerMixin):
     """Python driver for Alicat Flow Controllers.
 
     [Reference](http://www.alicat.com/products/mass-flow-meters-and-
@@ -464,79 +620,6 @@ class FlowController(FlowMeter):
         if line == '?':
             raise OSError("Unable to set totalizer batch volume. Check if volume is out of range for device.")
 
-    async def hold(self) -> None:
-        """Override command to issue a valve hold (firmware 5v07).
-
-        For a single valve controller, hold the valve at the present value.
-        For a dual valve flow controller, hold the valve at the present value.
-        For a dual valve pressure controller, close both valves.
-        """
-        command = f'{self.unit}$$H'
-        _ = await self._write_and_read(command)
-
-    async def cancel_hold(self) -> None:
-        """Cancel valve hold."""
-        command = f'{self.unit}$$C'
-        _ = await self._write_and_read(command)
-
-    async def get_pid(self) -> dict[str, Any]:
-        """Read the current PID values on the controller.
-
-        Values include the loop type, P value, D value, and I value.
-        Values returned as a dictionary.
-        """
-        self.pid_keys = ['loop_type', 'P', 'D', 'I']
-
-        command = f'{self.unit}$$r85'
-        read_loop_type = await self._write_and_read(command)
-        if not read_loop_type:
-            raise OSError("Could not get PID values.")
-        spl = read_loop_type.split()
-
-        loopnum = int(spl[3])
-        loop_type = ['PD/PDF', 'PD/PDF', 'PD2I'][loopnum]
-        pid_values = [loop_type]
-        for register in range(21, 24):
-            value = await self._write_and_read(f'{self.unit}$$r{register}')
-            if not value:
-                raise OSError(f"Could not read register {register}")
-            value_spl = value.split()
-            pid_values.append(value_spl[3])
-
-        return {k: (v if k == self.pid_keys[-1] else str(v))
-                for k, v in zip(self.pid_keys, pid_values, strict=True)}
-
-    async def set_pid(self, p: int | None=None,
-                            i: int | None=None,
-                            d: int | None=None,
-                            loop_type: str | None=None) -> None:
-        """Set specified PID parameters.
-
-        Args:
-            p: Proportional gain
-            i: Integral gain. Only used in PD2I loop type.
-            d: Derivative gain
-            loop_type: Algorithm option, either 'PD/PDF' or 'PD2I'
-
-        This communication works by writing Alicat registers directly.
-        """
-        if loop_type is not None:
-            options = ['PD/PDF', 'PD2I']
-            if loop_type not in options:
-                raise ValueError(f'Loop type must be {options[0]} or {options[1]}.')
-            loop_num=options.index(loop_type) + 1
-            command = f'{self.unit}$$w85={loop_num}'
-            _ = await self._write_and_read(command)
-        if p is not None:
-            command = f'{self.unit}$$w21={p}'
-            _ = await self._write_and_read(command)
-        if i is not None:
-            command = f'{self.unit}$$w23={i}'
-            _ = await self._write_and_read(command)
-        if d is not None:
-            command = f'{self.unit}$$w22={d}'
-            _ = await self._write_and_read(command)
-
     async def _set_setpoint(self, setpoint: float) -> None:
         """Set the target setpoint.
 
@@ -595,82 +678,3 @@ class FlowController(FlowMeter):
         if value != reg:
             raise OSError("Could not set control point.")
         self.control_point = point
-
-    async def set_ramp_config(self, config: dict[str, bool]) -> None:
-        """Configure the setpoint ramp settings (firmware 10v05).
-
-        `up`: whether the controller ramps when increasing the setpoint,
-        `down`: whether the controller ramps when decreasing the setpoint,
-                (this includes setpoints below 0 on bidirectional devices),
-        `zero`: whether the controller ramps when establishing a zero setpoint,
-        `power`: whether the controller ramps when using a power-up setpoint
-        """
-        command = (f"{self.unit}LSRC"
-                  f" {1 if config['up'] else 0}"
-                  f" {1 if config['down'] else 0}"
-                  f" {1 if config['zero'] else 0}"
-                  f" {1 if config['power'] else 0}")
-        line = await self._write_and_read(command)
-        if not line or self.unit not in line:
-            raise OSError("Could not set ramp config.")
-
-
-    async def get_ramp_config(self) -> dict[str, bool]:
-        """Get the setpoint ramp settings (firmware 10v05).
-
-        `up`: whether the controller ramps when increasing the setpoint,
-        `down`: whether the controller ramps when decreasing the setpoint,
-                (this includes setpoints below 0 on bidirectional devices),
-        `zero`: whether the controller ramps when establishing a zero setpoint,
-        `power`: whether the controller ramps when using a power-up setpoint
-        """
-        command = f"{self.unit}LSRC"
-        line = await self._write_and_read(command)
-        if not line or self.unit not in line:
-            raise OSError("Could not read ramp config.")
-        values = line[2:].split(' ')
-        if len(values) != 4:
-            raise OSError("Could not read ramp config.")
-        return {
-            'up': values[0] == '1',
-            'down': values[1] == '1',
-            'zero': values[2] == '1',
-            'power': values[3] == '1',
-        }
-
-    async def set_maxramp(self, max_ramp: float,
-                          unit_time: MaxRampTimeUnit) -> None:
-        """Set the maximum ramp rate (firmware 7v11).
-
-        Args:
-            max_ramp: The maximum ramp rate
-            unit_time: The units of the ramp rate
-                - 3: (m)illisecond
-                - 4: (s)econd
-                - 5: (m)inute
-                - 6: (h)hour
-                - 7: (d)ay
-        """
-        command = f"{self.unit}SR {max_ramp:.2f} {MAX_RAMP_TIME_UNITS[unit_time]}"
-        line = await self._write_and_read(command)
-        if not line or self.unit not in line:
-            raise OSError("Could not set max ramp.")
-
-    async def get_maxramp(self) -> dict[str, float | str]:
-        """Get the maximum ramp rate (firmware 7v11).
-
-        Returns:
-            max_ramp: The maximum ramp rate
-            units: The units string returned from the controller
-        """
-        command = f"{self.unit}SR"
-        line = await self._write_and_read(command)
-        if not line or self.unit not in line:
-            raise OSError("Could not read max ramp.")
-        values = line.split(' ')
-        if len(values) != 5:
-            raise OSError("Could not read max ramp.")
-        return {
-            'max_ramp': float(values[1]),
-            'units': str(values[4]),
-        }
