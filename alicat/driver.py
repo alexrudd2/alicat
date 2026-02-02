@@ -553,15 +553,12 @@ class FlowController(FlowMeter, ControllerMixin):
         self.control_point: str | None = None
 
         async def _init_control_point() -> None:
-            self.control_point = await self._get_control_point()
+            self.control_point = await self._get_control_point(_init=True)
         self._init_task = asyncio.create_task(_init_control_point())
 
-    async def _write_and_read(self, command: str) -> str | None:
-        """Wrap the communicator request.
-
-        Ensure _init_task completes before any command except the init command itself.
-        """
-        if 'R122' not in command:
+    async def _write_and_read(self, command: str, *, _init: bool = False) -> str | None:
+        """Ensure _init_task completes before any command except init commands."""
+        if not _init:
             await self._init_task
         return await super()._write_and_read(command)
 
@@ -650,10 +647,10 @@ class FlowController(FlowMeter, ControllerMixin):
         if line == '?':
             raise OSError("Unable to set totalizer batch volume. Check if volume is out of range for device.")
 
-    async def _get_control_point(self) -> str:
+    async def _get_control_point(self, *, _init: bool = False) -> str:
         """Get the control point, and save to internal variable."""
         command = f'{self.unit}R122'
-        line = await self._write_and_read(command)
+        line = await self._write_and_read(command, _init=_init)
         if not line:
             raise OSError("Could not read control point.")
         value = int(line.split('=')[-1])
