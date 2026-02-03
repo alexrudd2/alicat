@@ -108,7 +108,7 @@ async def test_set_gas_invalid(device):
 
 
 @pytest.mark.parametrize('device', FLOW_DEVICES, indirect=True)
-@pytest.mark.parametrize('gas_name,gas_num', [('Air', 0), ('H2', 6)])
+@pytest.mark.parametrize(('gas_name','gas_num'), [('Air', 0), ('H2', 6)])
 async def test_set_gas_by_number(device, gas_name, gas_num):
     """Confirm that setting standard gases by number works on flow devices."""
     async with device(ADDRESS) as d:
@@ -199,7 +199,7 @@ async def test_control_point(device, control_point):
 
 @pytest.mark.parametrize('device', ['flow_controller'], indirect=True)
 @pytest.mark.parametrize('unit', ['A', 'B'])
-def test_driver_cli(device, capsys, unit):
+def test_driver_cli(device, capsys, unit): # noqa: ARG001
     """Confirm the commandline interface works with different unit IDs."""
     command_line([ADDRESS, '--unit', unit])
     captured = capsys.readouterr()
