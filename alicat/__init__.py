@@ -10,6 +10,8 @@ from alicat.driver import (  # noqa  # type: ignore
     FlowController,
     FlowMeter,
     MaxRampTimeUnit,
+    PressureController,
+    PressureMeter,
 )
 
 

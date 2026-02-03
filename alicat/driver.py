@@ -704,3 +704,48 @@ class FlowController(FlowMeter, ControllerMixin):
         if value != reg:
             raise OSError("Could not set control point.")
         self.control_point = point
+
+
+class PressureMeter(AlicatDevice):
+    """Python driver for Alicat Pressure Meters.
+
+    These devices measure pressure only (no flow, no control).
+    """
+
+    def __init__(self, address: str = '/dev/ttyUSB0', unit: str = 'A',
+                 **kwargs: Any) -> None:
+        """Connect this driver with the appropriate USB / serial port.
+
+        Args:
+            address: The serial port or TCP address:port. Default '/dev/ttyUSB0'.
+            unit: The Alicat-specified unit ID, A-Z. Default 'A'.
+        """
+        super().__init__(address, unit, **kwargs)
+        self.keys = ['pressure']
+
+
+class PressureController(PressureMeter, ControllerMixin):
+    """Python driver for Alicat Pressure Controllers (PC-series).
+
+    These devices control pressure using an internal valve.
+    """
+
+    def __init__(self, address: str = '/dev/ttyUSB0', unit: str = 'A',
+                 **kwargs: Any) -> None:
+        """Connect this driver with the appropriate USB / serial port.
+
+        Args:
+            address: The serial port or TCP address:port. Default '/dev/ttyUSB0'.
+            unit: The Alicat-specified unit ID, A-Z. Default 'A'.
+        """
+        super().__init__(address, unit, **kwargs)
+        self.keys = ['pressure', 'setpoint']
+
+    async def set_pressure(self, pressure: float) -> None:
+        """Set the target pressure.
+
+        Args:
+            pressure: The target pressure, in units specified at time of
+                purchase. Likely in psia.
+        """
+        await self._set_setpoint(pressure)
