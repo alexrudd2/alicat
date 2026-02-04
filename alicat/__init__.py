@@ -6,9 +6,12 @@ from typing import Any
 
 from alicat.driver import (  # noqa  # type: ignore
     MAX_RAMP_TIME_UNITS,
+    AlicatDevice,
     FlowController,
     FlowMeter,
     MaxRampTimeUnit,
+    PressureController,
+    PressureMeter,
 )
 
 
