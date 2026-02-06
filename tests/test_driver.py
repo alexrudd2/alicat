@@ -8,13 +8,21 @@ from alicat import command_line
 from alicat.driver import FlowController
 from alicat.mock import Client
 
-ADDRESS = '/dev/ttyUSB0'
+ADDRESS = 'COM12'
 
-@pytest.fixture(autouse=True)
-def patch_serial_client():
+@pytest.fixture(scope='module', autouse=True)
+async def patch_serial_client(request):
     """Replace the serial client with our mock."""
-    with mock.patch('alicat.driver.SerialClient', Client):
+    if request.config.getoption("--hardware"):
+        async with FlowController(ADDRESS) as device:
+            res = await device._write_and_read('A')
+            if not res:
+                pytest.exit("Device not found. Ensure device is connected " \
+                "with unit id A and BAUD rate 19200 on the correct COM port.")
         yield
+    else:
+        with mock.patch('alicat.driver.SerialClient', Client):
+            yield
 
 @pytest.mark.parametrize('unit', ['A', 'B'])
 def test_driver_cli(capsys, unit):

@@ -7,3 +7,4 @@ venv
 .vscode
 .coverage
 uv.lock
+*/__pycache__/*
