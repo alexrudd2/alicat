@@ -2,14 +2,15 @@ alicat
 ======
 
 TCP/Serial driver and command line tool for
-[Alicat Laminar DP mass flow controllers](https://www.alicat.com/gas-products/laminar-dp-mass-flow-meters-and-controllers/).
+[Alicat Laminar DP](https://www.alicat.com/gas-products/laminar-dp-mass-flow-meters-and-controllers/) and [BASIS mass flow](https://www.alicat.com/products/gas-flow/mass-flow-controller/small-thermal-mass-flow-controllers/) devices.
 
 <p align="center">
-  <img src="https://www.alicat.com/wp-content/uploads/2024/05/M_MC_Pair.webp" height="400" />
+  <img src="https://www.alicat.com/wp-content/uploads/2024/05/M_MC_Pair.webp" width="40%" />
+  <img src="https://www.alicat.com/wp-content/uploads/2024/11/BASIS-controller-prod-600px.webp" width="40%" />
 </p>
 
 *If you are using Analyt-MTC flow controllers, go to [this repository](https://github.com/schlenzmeister/AnalytMTC/wiki) for more info.*
-*This driver does not currently support CODA or BASIS controllers.*
+*This driver does not currently support CODA devices.*
 
 Example Connections
 ===================
@@ -48,7 +49,7 @@ import asyncio
 from alicat import FlowController
 
 async def get():
-    async with FlowController('ip-address:port') as flow_controller:
+    async with FlowController(address = "com_port", unit = "unit_id") as flow_controller:
         print(await flow_controller.get())
 
 asyncio.run(get())
@@ -56,10 +57,24 @@ asyncio.run(get())
 #  sawait get()
 ```
 
+A similar format can be used to communicate with a BASIS device.
+
+```python
+import asyncio
+from alicat.basis import BasisController
+
+async def get():
+    async with BasisController(address = "com_port", unit = "unit_id") as basis_controller:
+        print(await basis_controller.get())
+
+asyncio.run(get())
+```
+
 If the flow controller is communicating on the specified port, this should
 return a dictionary of the form:
 
 ```python
+## Standard Devices
 {
   'setpoint': 0.0,         # Setpoint, either mass flow rate or pressure
   'control_point': 'flow', # Either 'flow' or 'pressure'
@@ -69,6 +84,15 @@ return a dictionary of the form:
   'temperature': 23.62,    # Temperature (normally in C)
   'total_flow': 0.0,       # Optional. If totalizer function purchased, will be included
   'volumetric_flow': 0.0   # Volumetric flow (in units specified at time of purchase)
+}
+
+## BASIS Devices
+{
+  'setpoint': 0.0,         # Mass Flow Setpoint
+  'gas': 'Air',            # Can be Air, Ar, CO2, N2, O2, N2O, H2, He, CH4
+  'mass_flow': 0.0,        # Mass flow (in SCCM or SLPM)
+  'temperature': 23.62,    # Temperature (normally in C)
+  'volumetric_flow': 0.0   # Volumetric flow (in CCM or LPM)
 }
 ```
 

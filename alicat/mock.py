@@ -6,6 +6,7 @@ import contextlib
 from random import choice, random
 from unittest.mock import AsyncMock, MagicMock
 
+from .basis import GASES as BASISGases
 from .driver import CONTROL_POINTS, GASES, MAX_RAMP_TIME_UNITS, MaxRampTimeUnit
 from .util import Client as RealClient
 
@@ -22,6 +23,7 @@ class Client(RealClient):
         self.reader.read.return_value = self.eol
         self.reader.readuntil.side_effect = self._handle_read
 
+        self.port = address
         self.open = True
         self._next_reply = ''
 
@@ -135,6 +137,111 @@ class Client(RealClient):
         elif msg == '$$V':
             self.state['volumetric_flow'] = 0
             self._next_reply = self._create_dataframe()
+        else:
+            raise NotImplementedError(msg)
+
+    async def _handle_read(self, separator: bytes) -> bytes:
+        """Reply to read requests from the mock client."""
+        reply = self._next_reply.encode() + separator
+        self._next_reply = ''
+        return reply
+
+class BASISClient(RealClient):
+    """Mock the BASIS communication client."""
+
+    def __init__(self, address: str, baudrate: int) -> None:
+        super().__init__(timeout=0.01)
+        self.writer = MagicMock(spec=asyncio.StreamWriter)
+        self.writer.write.side_effect=self._handle_write
+        self.reader = AsyncMock(spec=asyncio.StreamReader)
+        self.reader.read.return_value = self.eol
+        self.reader.readuntil.side_effect = self._handle_read
+
+        self.port = address
+        self.baud = baudrate
+        self.open = True
+        self._next_reply = ''
+
+        self.open = True
+        self.state: dict[str, str | float] = {
+            'setpoint': 10,
+            'gas': 'N2',
+            'mass_flow': 10 * (0.95 + 0.1 * random()),
+            'temperature': random() * 50.0,
+            'valve_drive': 0.0,
+            'control_point': 'mass_flow',
+            'totalizer': 0.0,
+        }
+        self.keys = ['temperature', 'mass_flow', 'totalizer',
+                     'valve_drive', 'gas', 'setpoint', 'control_point']
+        self.pid = {'P': '500', 'I': '5000'}
+        self.batchvol = '0'
+        self.firmware = "V 3.1.0"
+
+    async def _handle_connection(self) -> None:
+        pass
+
+    def _create_dataframe(self) -> str:
+        """Generate a typical 'dataframe' with current operating conditions."""
+        return (
+            f"{self.unit} "
+            f"{self.state['temperature']:+07.2f} "
+            f"{self.state['mass_flow']:+07.2f} "
+            f"{self.state['totalizer']:+07.2f} "
+            f"{self.state['setpoint']:07.2f} "
+            f"{self.state['valve_drive']:07.2f} "
+            f"{self.state['gas']:<7} "
+            f"{'HLD' if self.state['control_point'] == 'HLD' else ''}"
+        )
+
+    def _handle_write(self, data: bytes) -> None:
+        """Act on writes sent to the mock client, updating internal state and setting self._next_reply if necessary."""
+        msg = data.decode().strip()
+        self.unit = msg[0]
+
+        msg = msg[1:]  # strip unit
+        if msg == '':  # get dataframe
+            self._next_reply = self._create_dataframe()
+        elif 'VE' in msg: # get firmware
+            self._next_reply = f"{self.unit} {self.firmware}"
+        elif msg[0] == 'S':  # set setpoint
+            self.state['setpoint'] = float(msg[1:])
+            self._next_reply = self._create_dataframe()
+        elif "GS" in msg:  # set gas via reg46
+            gas = msg[3:]
+            self._next_reply = f"{self.unit} {gas}"
+            with contextlib.suppress(ValueError):
+                gas = BASISGases[int(gas)]
+            self.state['gas'] = gas
+        elif msg[0] == 'V': # tare flow
+            self.state['mass_flow'] = 0
+            self._next_reply = self._create_dataframe()
+        elif msg == 'T': # reset totalizer
+            self.state['totalizer'] = 0
+            self._next_reply = self._create_dataframe()
+        elif 'HPUR' in msg: # valve hold
+            self.state['control_point'] = 'HLD'
+            valve_drive = float(msg[5:])
+            self.state['valve_drive'] = valve_drive
+            self._next_reply = self._create_dataframe()
+        elif msg == 'C': # cancel hold
+            self.state['control_point'] = 'mass_flow'
+            self._next_reply = self._create_dataframe()
+        elif 'LCG' in msg: # pid terms
+            if len(msg.strip().split(' ')) == 1: # get pid terms
+                self._next_reply = f"{self.unit} {self.pid['P']} {self.pid['I']}"
+            else:
+                terms = msg[3:].strip().split(' ')
+                self.pid = {'P': terms[0], 'I': terms[1]}
+                self._next_reply = f"{self.unit} {msg[3:]}"
+        elif 'TB' in msg: ## batch volume
+            if len(msg.strip().split(' ')) == 1: # get batch vol
+                self._next_reply = f"{self.batchvol}"
+            else:
+                self.batchvol = msg[2:]
+                self._next_reply = f"{self.unit} {self.batchvol}"
+        elif 'DV 64' in msg: ## remaining volume
+            self._next_reply = f"{self.unit} {msg[3:]}"
         else:
             raise NotImplementedError(msg)
 
