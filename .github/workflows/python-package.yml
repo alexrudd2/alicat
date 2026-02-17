@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: 3.14
       - name: Run codespell with a typo
-        run: uvx codespell .
+        run: uvx codespell . || exit 1
 
 permissions:
   contents: read
