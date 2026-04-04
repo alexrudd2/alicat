@@ -46,7 +46,7 @@ This uses Python ≥3.5's async/await syntax to asynchronously communicate with 
 
 ```python
 import asyncio
-from alicat import FlowController
+from alicat.driver import FlowController
 
 async def get():
     async with FlowController(address = "com_port", unit = "unit_id") as flow_controller:
@@ -61,10 +61,10 @@ A similar format can be used to communicate with a BASIS device.
 
 ```python
 import asyncio
-from alicat.basis import BasisController
+from alicat.basis import BASISController
 
 async def get():
-    async with BasisController(address = "com_port", unit = "unit_id") as basis_controller:
+    async with BASISController(address = "com_port", unit = "unit_id") as basis_controller:
         print(await basis_controller.get())
 
 asyncio.run(get())
