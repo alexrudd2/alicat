@@ -666,11 +666,11 @@ class FlowController(FlowMeter):
         Args:
             max_ramp: The maximum ramp rate
             unit_time: The units of the ramp rate
-                - 3: (m)illisecond
-                - 4: (s)econd
-                - 5: (m)inute
-                - 6: (h)hour
-                - 7: (d)ay
+                - (m)illisecond
+                - (s)econd
+                - (m)inute
+                - (h)hour
+                - (d)ay
         """
         command = f"{self.unit}SR {max_ramp:.2f} {MAX_RAMP_TIME_UNITS[unit_time]}"
         line = await self._write_and_read(command)
