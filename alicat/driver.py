@@ -247,7 +247,7 @@ class FlowMeter:
                 name,
                 str(mix_no),
                 " ".join(gas_list),
-            ]
+            ],
         )
         line = await self._write_and_read(command)
 
@@ -529,7 +529,11 @@ class FlowController(FlowMeter):
         return {k: (v if k == self.pid_keys[-1] else str(v)) for k, v in zip(self.pid_keys, pid_values, strict=True)}
 
     async def set_pid(
-        self, p: int | None = None, i: int | None = None, d: int | None = None, loop_type: str | None = None
+        self,
+        p: int | None = None,
+        i: int | None = None,
+        d: int | None = None,
+        loop_type: str | None = None,
     ) -> None:
         """Set specified PID parameters.
 
