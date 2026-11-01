@@ -66,7 +66,7 @@ class Client(ABC):
         try:
             junk = await asyncio.wait_for(self.reader.read(100), timeout=self.timeout)
             logger.warning(junk)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
 
     async def _handle_communication(self, command: str) -> str | None:
@@ -77,7 +77,7 @@ class Client(ABC):
             result = await asyncio.wait_for(future, timeout=self.timeout)
             self.timeouts = 0
             return result
-        except (asyncio.TimeoutError, TypeError, OSError):
+        except (TimeoutError, TypeError, OSError):
             self.timeouts += 1
             if self.timeouts == self.max_timeouts:
                 logger.error(f'Reading from {self.address} timed out '
@@ -138,7 +138,7 @@ class TcpClient(Client):
             try:
                 await asyncio.wait_for(self._connect(), timeout=self.timeout)
                 self.reconnecting = False
-            except (asyncio.TimeoutError, OSError):
+            except (TimeoutError, OSError):
                 if not self.reconnecting:
                     logger.error(f'Connecting to {self.address} timed out.')
                 self.reconnecting = True
