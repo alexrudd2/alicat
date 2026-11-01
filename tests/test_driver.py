@@ -8,7 +8,7 @@ from alicat import command_line
 from alicat.driver import AlicatDevice, FlowController, FlowMeter, PressureController, PressureMeter
 from alicat.mock import Client
 
-ADDRESS = '/dev/ttyUSB0'
+ADDRESS = 'COM12'
 
 # Mapping from device_type to driver class
 DEVICE_CLASSES = {

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "alicat"
-version = "0.8.0"
+version = "0.9.0"
 description="Python driver for Alicat mass flow controllers."
 dependencies = [
   "pyserial",
@@ -23,11 +23,11 @@ classifiers = [
     "Natural Language :: English",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Topic :: Scientific/Engineering :: Human Machine Interfaces",
 ]
 requires-python = ">= 3.10"
@@ -38,7 +38,7 @@ dev = [
     "pytest-cov>=7,<8",
     "pytest-asyncio>=0.23.5",
     "pytest-xdist>=3,<4",
-    "ruff==0.14.10",
+    "ruff==0.17.3",
     "types-pyserial",
     "zuban>=0.3.0",
 ]
@@ -56,7 +56,7 @@ packages = ["alicat"]
 [tool.ruff]
 extend-exclude = ["venv*"]
 line-length = 120
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 ignore = [

@@ -4,6 +4,7 @@ Distributed under the GNU General Public License v2
 Copyright (C) 2024 Alex Ruddick
 Copyright (C) 2023 NuMat Technologies
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -60,14 +61,14 @@ class AlicatDevice:
     # mapping of port names to a tuple of Client objects and their refcounts
     open_ports: ClassVar[dict[str, tuple[Client, int]]] = {}
 
-    def __init__(self, address: str = '/dev/ttyUSB0', unit: str = 'A', **kwargs: Any) -> None:
+    def __init__(self, address: str = "/dev/ttyUSB0", unit: str = "A", **kwargs: Any) -> None:
         """Connect this driver with the appropriate USB / serial port.
 
         Args:
             address: The serial port or TCP address:port. Default '/dev/ttyUSB0'.
             unit: The Alicat-specified unit ID, A-Z. Default 'A'.
         """
-        if address.startswith('/dev') or address.startswith('COM'):  # serial
+        if address.startswith("/dev") or address.startswith("COM"):  # serial
             if address in AlicatDevice.open_ports:
                 # Reuse existing connection
                 self.hw, refcount = AlicatDevice.open_ports[address]
@@ -170,7 +171,7 @@ class AlicatDevice:
             The state of the device, as a dictionary. Includes a 'status'
             key containing a sorted list of any status flags present in the response.
         """
-        command = f'{self.unit}'
+        command = f"{self.unit}"
         line = await self._write_and_read(command)
         if not line:
             raise OSError("Could not read values")
@@ -305,10 +306,10 @@ class FlowMeter(AlicatDevice):
             gas_number = GASES.index(gas)
         else:
             gas_number = gas
-        command = f'{self.unit}$$W46={gas_number}'
+        command = f"{self.unit}$$W46={gas_number}"
         # fixme does this overwrite the upper bits??
         _ = await self._write_and_read(command)
-        reg46 = await self._write_and_read(f'{self.unit}$$R46')
+        reg46 = await self._write_and_read(f"{self.unit}$$R46")
         if not reg46:
             raise OSError("Cannot set gas.")
         reg46_gasbit = int(reg46.split()[-1]) & 0b0000000111111111
@@ -330,7 +331,7 @@ class FlowMeter(AlicatDevice):
         percentage in the mix.
         """
         firmware = await self.get_firmware()
-        if any(v in firmware for v in ['2v', '3v', '4v', 'GP']):
+        if any(v in firmware for v in ["2v", "3v", "4v", "GP"]):
             raise OSError("This unit does not support COMPOSER gas mixes.")
 
         if mix_no < 236 or mix_no > 255:
@@ -343,43 +344,48 @@ class FlowMeter(AlicatDevice):
         if any(gas not in GASES for gas in gases):
             raise ValueError("Gas not supported!")
 
-        gas_list = [f'{percent} {GASES.index(gas)}' for gas, percent in gases.items()]
-        command = ' '.join([
-            self.unit,
-            'GM',
-            name,
-            str(mix_no),
-            ' '.join(gas_list),
-        ])
+        gas_list = [f"{percent} {GASES.index(gas)}" for gas, percent in gases.items()]
+        command = " ".join(
+            [
+                self.unit,
+                "GM",
+                name,
+                str(mix_no),
+                " ".join(gas_list),
+            ],
+        )
         line = await self._write_and_read(command)
 
         # If a gas mix is not successfully created, ? is returned.
-        if line == '?':
+        if line == "?":
             raise OSError("Unable to create mix.")
 
     async def delete_mix(self, mix_no: int) -> None:
         """Delete a gas mix."""
-        command = f'{self.unit}GD{mix_no}'
+        command = f"{self.unit}GD{mix_no}"
         line = await self._write_and_read(command)
-        if line == '?':
+        if line == "?":
             raise OSError("Unable to delete mix.")
 
     async def tare_volumetric(self) -> None:
         """Tare volumetric flow."""
-        command = f'{self.unit}$$V'
+        command = f"{self.unit}$$V"
         line = await self._write_and_read(command)
-        if line == '?':
+        if line == "?":
             raise OSError("Unable to tare flow.")
 
     async def reset_totalizer(self) -> None:
         """Reset the totalizer."""
-        command = f'{self.unit}T'
+        command = f"{self.unit}T"
         _ = await self._write_and_read(command)
 
 
 CONTROL_POINTS = {
-    'mass flow': 37, 'vol flow': 36,
-    'abs pressure': 34, 'gauge pressure': 38, 'diff pressure': 39,
+    "mass flow": 37,
+    "vol flow": 36,
+    "abs pressure": 34,
+    "gauge pressure": 38,
+    "diff pressure": 39,
 }  # fixme: add remaining control points
 
 
@@ -605,7 +611,7 @@ class FlowController(FlowMeter, ControllerMixin):
         device's data frame but is cached by the driver from register 122.
         """
         state = await super().get()
-        state['control_point'] = self.control_point
+        state["control_point"] = self.control_point
         return state
 
     async def set_flow_rate(self, flowrate: float) -> None:
@@ -614,9 +620,9 @@ class FlowController(FlowMeter, ControllerMixin):
         Args:
             flow: The target flow rate, in units specified at time of purchase
         """
-        if self.control_point in ['abs pressure', 'gauge pressure', 'diff pressure']:
+        if self.control_point in ["abs pressure", "gauge pressure", "diff pressure"]:
             await self._set_setpoint(0)
-            await self._set_control_point('mass flow')
+            await self._set_control_point("mass flow")
         await self._set_setpoint(flowrate)
 
     async def set_pressure(self, pressure: float) -> None:
@@ -626,9 +632,9 @@ class FlowController(FlowMeter, ControllerMixin):
             pressure: The target pressure, in units specified at time of
                 purchase. Likely in psia.
         """
-        if self.control_point in ['mass flow', 'vol flow']:
+        if self.control_point in ["mass flow", "vol flow"]:
             await self._set_setpoint(0)
-            await self._set_control_point('abs pressure')
+            await self._set_control_point("abs pressure")
         await self._set_setpoint(pressure)
 
     async def get_totalizer_batch(self, batch: int = 1) -> str:
@@ -641,14 +647,14 @@ class FlowController(FlowMeter, ControllerMixin):
         Returns:
             line: Current value of totalizer batch
         """
-        command = f'{self.unit}$$TB {batch}'
+        command = f"{self.unit}$$TB {batch}"
         line = await self._write_and_read(command)
-        if line == '?':
+        if line == "?":
             raise OSError("Unable to read totalizer batch volume.")
         values = line.split(" ")  # type: ignore[union-attr]
-        return f'{values[2]} {values[4]}' # returns 'batch vol' 'units'
+        return f"{values[2]} {values[4]}"  # returns 'batch vol' 'units'
 
-    async def set_totalizer_batch(self, batch_volume: float, batch: int = 1, units: str = 'default') -> None:
+    async def set_totalizer_batch(self, batch_volume: float, batch: int = 1, units: str = "default") -> None:
         """Set the totalizer batch volume (firmware 10v00).
 
         Args:
@@ -659,18 +665,31 @@ class FlowController(FlowMeter, ControllerMixin):
             units: Units of the volume being provided. Default
                 is 0, so device returns default engineering units.
         """
-        engineering_units_table = {"default":0, "SμL":2, "SmL":3, "SL":4, \
-                    "Scm3":6, "Sm3":7, "Sin3":8, "Sft3":9, "kSft3":10, "NμL":32, \
-                    "NmL":33, "NL":34, "Ncm3":36, "Nm3":37}
+        engineering_units_table = {
+            "default": 0,
+            "SμL": 2,
+            "SmL": 3,
+            "SL": 4,
+            "Scm3": 6,
+            "Sm3": 7,
+            "Sin3": 8,
+            "Sft3": 9,
+            "kSft3": 10,
+            "NμL": 32,
+            "NmL": 33,
+            "NL": 34,
+            "Ncm3": 36,
+            "Nm3": 37,
+        }
 
         if units in engineering_units_table:
             units_no = engineering_units_table[units]
         else:
             raise ValueError("Units not in unit list. Please consult Appendix B-3 of the Alicat Serial Primer.")
 
-        command = f'{self.unit}$$TB {batch} {batch_volume} {units_no}'
+        command = f"{self.unit}$$TB {batch} {batch_volume} {units_no}"
         line = await self._write_and_read(command)
-        if line == '?':
+        if line == "?":
             raise OSError("Unable to set totalizer batch volume. Check if volume is out of range for device.")
 
     async def _get_control_point(self, *, _init: bool = False) -> str:
@@ -679,7 +698,7 @@ class FlowController(FlowMeter, ControllerMixin):
         line = await self._write_and_read(command, _init=_init)
         if not line:
             raise OSError("Could not read control point.")
-        value = int(line.split('=')[-1])
+        value = int(line.split("=")[-1])
         try:
             cp = next(p for p, r in CONTROL_POINTS.items() if value == r)
             self.control_point = cp
@@ -696,11 +715,11 @@ class FlowController(FlowMeter, ControllerMixin):
         if point not in CONTROL_POINTS:
             raise ValueError(f"Control point must be one of {list(CONTROL_POINTS.keys())}.")
         reg = CONTROL_POINTS[point]
-        command = f'{self.unit}W122={reg:d}'
+        command = f"{self.unit}W122={reg:d}"
         line = await self._write_and_read(command)
         if not line:
             raise OSError("Could not set control point.")
-        value = int(line.split('=')[-1])
+        value = int(line.split("=")[-1])
         if value != reg:
             raise OSError("Could not set control point.")
         self.control_point = point
