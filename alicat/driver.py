@@ -196,7 +196,7 @@ class FlowMeter(AlicatDevice):
         """
         super().__init__(address, unit, **kwargs)
         self.keys = ['pressure', 'temperature', 'volumetric_flow', 'mass_flow',
-                     'setpoint', 'gas']
+                     'totalizer', 'gas']
 
     @classmethod
     async def is_connected(cls, port: str, unit: str = "A") -> bool:
